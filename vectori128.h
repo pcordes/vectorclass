@@ -257,17 +257,9 @@ static inline bool horizontal_and (Vec128b const & a) {
 #if INSTRSET >= 5   // SSE4.1 supported. Use PTEST
     return _mm_testc_si128(a,constant4i<-1,-1,-1,-1>()) != 0;
 #else
-    __m128i t1 = _mm_unpackhi_epi64(a,a);                  // get 64 bits down
-    __m128i t2 = _mm_and_si128(a,t1);                      // and 64 bits
-#ifdef __x86_64__
-    int64_t t5 = _mm_cvtsi128_si64(t2);                    // transfer 64 bits to integer
-    return  t5 == int64_t(-1);
-#else
-    __m128i t3 = _mm_srli_epi64(t2,32);                    // get 32 bits down
-    __m128i t4 = _mm_and_si128(t2,t3);                     // and 32 bits
-    int     t5 = _mm_cvtsi128_si32(t4);                    // transfer 32 bits to integer
-    return  t5 == -1;
-#endif  // __x86_64__
+    __m128i cmp  = _mm_cmpeq_epi32(a, constant4i<-1,-1,-1,-1>());
+    int     mask = _mm_movemask_epi8(cmp);
+    return  mask == 0xFFFF;
 #endif  // INSTRSET
 }
 
@@ -276,17 +268,9 @@ static inline bool horizontal_or (Vec128b const & a) {
 #if INSTRSET >= 5   // SSE4.1 supported. Use PTEST
     return ! _mm_testz_si128(a,a);
 #else
-    __m128i t1 = _mm_unpackhi_epi64(a,a);                  // get 64 bits down
-    __m128i t2 = _mm_or_si128(a,t1);                       // and 64 bits
-#ifdef __x86_64__
-    int64_t t5 = _mm_cvtsi128_si64(t2);                    // transfer 64 bits to integer
-    return  t5 != int64_t(0);
-#else
-    __m128i t3 = _mm_srli_epi64(t2,32);                    // get 32 bits down
-    __m128i t4 = _mm_or_si128(t2,t3);                      // and 32 bits
-    int     t5 = _mm_cvtsi128_si32(t4);                    // transfer to integer
-    return  t5 != 0;
-#endif  // __x86_64__
+    __m128i cmp  = _mm_cmpeq_epi32(a, _mm_setzero_si128());
+    int     mask = _mm_movemask_epi8(cmp);
+    return  mask == 0xFFFF;
 #endif  // INSTRSET
 }
 
