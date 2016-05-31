@@ -1,6 +1,10 @@
 change log for vectorclass.zip
 ------------------------------
 
+2016-?? version 1.23
+ * improved 128i horizontal bitwise AND/OR without SSE4.1, almost as efficient as PTEST
+ * improved abs to maybe save a movdqa without AVX
+
 2015-05-03 version 1.22
   * added optional namespace
   * fixed problem with decimal.h  
