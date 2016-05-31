@@ -1,7 +1,7 @@
 /****************************  vectorf256.h   *******************************
 * Author:        Agner Fog
 * Date created:  2012-05-30
-* Last modified: 2016-04-26
+* Last modified: 2016-05-30
 * Version:       1.22
 * Project:       vector classes
 * Description:
@@ -897,11 +897,12 @@ static inline Vec8f if_mul (Vec8fb const & f, Vec8f const & a, Vec8f const & b) 
 
 // Horizontal add: Calculates the sum of all vector elements.
 static inline float horizontal_add (Vec8f const & a) {
-    __m256 t1 = _mm256_hadd_ps(a,a);
-    __m256 t2 = _mm256_hadd_ps(t1,t1);
-    __m128 t3 = _mm256_extractf128_ps(t2,1);
-    __m128 t4 = _mm_add_ss(_mm256_castps256_ps128(t2),t3);
-    return _mm_cvtss_f32(t4);        
+    __m128 t1 = _mm_add_ps(a.get_low(), a.get_high());
+    __m128 t2 = _mm_movehdup_ps(t1);                   // duplicate elements 3,1 -> [ 3 3 1 1 ]
+    __m128 t3 = _mm_add_ps(t1, t2);
+    __m128 t4 = _mm_movehl_ps(t3, t3);                  // same,same doesn't waste a movaps with AVX
+    __m128 t5 = _mm_add_ss(t3, t4);
+    return _mm_cvtss_f32(t5);
 }
 
 // function max: a > b ? a : b
@@ -1652,10 +1653,10 @@ static inline Vec4d if_mul (Vec4db const & f, Vec4d const & a, Vec4d const & b) 
 
 // Horizontal add: Calculates the sum of all vector elements.
 static inline double horizontal_add (Vec4d const & a) {
-    __m256d t1 = _mm256_hadd_pd(a,a);
-    __m128d t2 = _mm256_extractf128_pd(t1,1);
-    __m128d t3 = _mm_add_sd(_mm256_castpd256_pd128(t1),t2);
-    return _mm_cvtsd_f64(t3);        
+    __m128d t1 = _mm_add_pd(a.get_low(), a.get_high());
+    __m128d t2 = _mm_unpackhi_pd(t1, t1);    // the non-AVX version should use something else to avoid wasting a movaps
+    __m128d t3 = _mm_add_sd(t2, t1);
+    return _mm_cvtsd_f64(t3);
 }
 
 // function max: a > b ? a : b
