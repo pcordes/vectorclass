@@ -817,9 +817,10 @@ static inline Vec16c min(Vec16c const & a, Vec16c const & b) {
 }
 
 // function abs: a >= 0 ? a : -a
+// returns -128 for that special-case.
 static inline Vec16c abs(Vec16c const & a) {
 #if INSTRSET >= 4     // SSSE3 supported
-    return _mm_sign_epi8(a,a);
+    return _mm_abs_epi8(a);
 #else                 // SSE2
     __m128i nega = _mm_sub_epi8(_mm_setzero_si128(), a);
     return _mm_min_epu8(a, nega);   // unsigned min (the negative value is bigger when compared as unsigned)
@@ -1621,7 +1622,7 @@ static inline Vec8s min(Vec8s const & a, Vec8s const & b) {
 // function abs: a >= 0 ? a : -a
 static inline Vec8s abs(Vec8s const & a) {
 #if INSTRSET >= 4     // SSSE3 supported
-    return _mm_sign_epi16(a,a);
+    return _mm_abs_epi16(a);
 #else                 // SSE2
     __m128i nega = _mm_sub_epi16(_mm_setzero_si128(), a);
     return _mm_max_epi16(a, nega);
@@ -2457,7 +2458,7 @@ static inline Vec4i min(Vec4i const & a, Vec4i const & b) {
 // function abs: a >= 0 ? a : -a
 static inline Vec4i abs(Vec4i const & a) {
 #if INSTRSET >= 4     // SSSE3 supported
-    return _mm_sign_epi32(a,a);
+    return _mm_abs_epi32(a);
 #else                 // SSE2
     __m128i sign = _mm_srai_epi32(a,31);                   // sign of a
     __m128i inv  = _mm_xor_si128(a,sign);                  // invert bits if negative
