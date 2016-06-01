@@ -3293,6 +3293,7 @@ static inline uint64_t horizontal_add (Vec2uq const & a) {
 }
 
 
+/******************** Vec4 *********************/
 
 
 // Horizontal add: Calculates the sum of all vector elements.
@@ -3356,7 +3357,7 @@ static inline uint64_t horizontal_add_x (Vec4ui const & a) {
 }
 
 
-
+/******************** Vec8 *********************/
 
 // Horizontal add: Calculates the sum of all vector elements.
 // Overflow will wrap around
@@ -3435,6 +3436,7 @@ static inline uint32_t horizontal_add_x (Vec8us const & a) {
 }
 
 
+/******************** Vec16 *********************/
 
 // Horizontal add extended: Calculates the sum of all vector elements.
 // Each element is zero-extended before addition to avoid overflow
@@ -3460,7 +3462,7 @@ static inline int32_t horizontal_add (Vec16c const & a) {
 
 // Horizontal add extended: Calculates the sum of all vector elements.
 // Each element is sign-extended before addition to avoid overflow
-// TODO: range-shift to unsigned, then shift back?
+// TODO: does it work to range-shift to unsigned, then shift back?
 static inline int32_t horizontal_add_x (Vec16c const & a) {
 #ifdef __XOP__       // AMD XOP instruction set
     __m128i sum1  = _mm_haddq_epi8(a);
