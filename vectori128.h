@@ -185,9 +185,11 @@ static inline Vec128b & operator &= (Vec128b & a, Vec128b const & b) {
     return a;
 }
 
+int global_v128b_operator_or_equal;
 // vector operator |= : bitwise or
 static inline Vec128b & operator |= (Vec128b & a, Vec128b const & b) {
     a = a | b;
+    global_v128b_operator_or_equal = 128;
     return a;
 }
 
@@ -273,6 +275,196 @@ static inline bool horizontal_or (Vec128b const & a) {
     return  mask == 0xFFFF;
 #endif  // INSTRSET
 }
+
+
+
+
+#if 01
+
+/*****************************************************************************
+*
+*          Boilerplate macros to define functions in terms of others
+*
+*****************************************************************************/
+
+// Same for signed and unsigned.  V_T is the vector type
+
+#define BOILERPLATE_INCDEC(V_T)						\
+/* postfix operator ++ */						\
+static inline V_T operator ++ (V_T & a, int) {				\
+    V_T a0 = a;								\
+    a = a + 1;								\
+    return a0;								\
+}									\
+/* prefix operator ++ */						\
+static inline V_T & operator ++ (V_T & a) {				\
+    a = a + 1;								\
+    return a;								\
+}									\
+									\
+/* postfix operator -- */						\
+static inline V_T operator -- (V_T & a, int) {				\
+    V_T a0 = a;								\
+    a = a - 1;								\
+    return a0;								\
+}									\
+									\
+/* prefix operator -- */						\
+static inline V_T & operator -- (V_T & a) {				\
+    a = a - 1;								\
+    return a;								\
+}
+
+
+#define BOILERPLATE_ASSIGNMENTS(V_T)					\
+/* vector operator += : add */					        \
+static inline V_T & operator += (V_T & a, V_T const & b) {	        \
+    a = a + b;								\
+    return a;								\
+}									\
+/* vector operator -= : sub */						\
+static inline V_T & operator -= (V_T & a, V_T const & b) {		\
+    a = a - b;								\
+    return a;								\
+}									\
+									\
+/* vector operator *= : multiply */					\
+static inline V_T & operator *= (V_T & a, V_T const & b) {		\
+    a = a * b;								\
+    return a;								\
+}									\
+									\
+/* vector operator <<= : shift left */					\
+static inline V_T & operator <<= (V_T & a, int b) {			\
+    a = a << b;								\
+    return a;								\
+}									\
+/* vector operator >>= : shift right */					\
+static inline V_T & operator >>= (V_T & a, int b) {			\
+    a = a >> b;								\
+    return a;								\
+}									\
+									\
+/* vector operator &= : bitwise and */					\
+static inline V_T & operator &= (V_T & a, V_T const & b) {		\
+    a = a & b;								\
+    return a;								\
+}									\
+/* vector operator |= : bitwise or */					\
+static inline V_T & operator |= (V_T & a, V_T const & b) {		\
+    a = a | b;								\
+    return a;								\
+}									\
+/* vector operator ^= : bitwise xor */					\
+static inline V_T & operator ^= (V_T & a, V_T const & b) {		\
+    a = a ^ b;								\
+    return a;								\
+}
+/* Unsigned didn't previously have separate operator &=.  It used the signed version */
+
+
+// V_T is the normal vector type, V_B is the boolean type
+// e.g. Vec16cb, Vec16cb        (Vec8us had a bug where compares returned Vec8s, not sb)
+#define BOILERPLATE_COMPARES(V_T, V_B)					\
+/* vector operator < : returns true for elements for which a < b (signed) */ \
+static inline V_B  operator < (V_T const & a, V_T const & b) {          \
+    return b > a;							\
+}									\
+/* vector operator <= : returns true for elements for which a <= b (signed) */ \
+static inline V_B operator <= (V_T const & a, V_T const & b) {		\
+    return b >= a;							\
+}
+
+
+#define BOILERPLATE_BITWISE(V_T)					\
+/* vector operator & : bitwise and */					\
+static inline V_T operator & (V_T const & a, V_T const & b) {	        \
+    return V_T(Vec128b(a) & Vec128b(b));				\
+}									\
+static inline V_T operator && (V_T const & a, V_T const & b) {		\
+    return a & b;							\
+}									\
+									\
+/* vector operator | : bitwise or */					\
+static inline V_T operator | (V_T const & a, V_T const & b) {		\
+    return V_T(Vec128b(a) | Vec128b(b));				\
+}									\
+static inline V_T operator || (V_T const & a, V_T const & b) {		\
+    return a | b;							\
+}									\
+									\
+/* vector operator ^ : bitwise xor */					\
+static inline V_T operator ^ (V_T const & a, V_T const & b) {		\
+    return V_T(Vec128b(a) ^ Vec128b(b));				\
+}									\
+									\
+/* vector operator ~ : bitwise not */					\
+static inline V_T operator ~ (V_T const & a) {				\
+    return V_T( ~ Vec128b(a));						\
+}
+
+
+
+// unsigned: use MISC(Vec16uc, Vec16c)   // signed of the same type as selector???  Bug?
+//   signed: use MISC(Vec16b,  Vec16b)   // boolean of the same type as selector
+#define BOILERPLATE_MISC(V_T, V_B)				\
+/* Select between two operands. Corresponds to this pseudocode: */	\
+/* for (int i = 0; i < 16; i++) result[i] = s[i] ? a[i] : b[i]; */	\
+/* Each element in s must be either 0 (false) or -1 (true). No other values are allowed. */ \
+static inline V_T select (V_B const & s, V_T const & a, V_T const & b) { \
+    return selectb(s,a,b);						\
+}									\
+									\
+/* Conditional add: For all vector elements i: result[i] = f[i] ? (a[i] + b[i]) : a[i] */ \
+static inline V_T if_add (V_B const & f, V_T const & a, V_T const & b) { \
+    return a + (V_T(f) & b);						\
+}
+
+
+
+// unsigned can reuse a lot of the code from the corresponding signed type
+#define UNSIGNED_BOILERPLATE_USING_SIGNED(V_US, V_S)		       \
+/* vector operator + : add */				               \
+static inline V_US operator + (V_US const & a, V_US const & b) {       \
+    return V_US (V_S(a) + V_S(b));				       \
+}								       \
+/* vector operator - : subtract */				       \
+static inline V_US operator - (V_US const & a, V_US const & b) {       \
+    return V_US (V_S(a) - V_S(b));				       \
+}								       \
+/* vector operator * : multiply */				       \
+static inline V_US operator * (V_US const & a, V_US const & b) {       \
+    return V_US (V_S(a) * V_S(b));				       \
+}								       \
+								       \
+/* vector operator >> : shift right logical all elements */	       \
+static inline V_US operator >> (V_US const & a, int32_t b) {	       \
+    return a >> (uint32_t)b;					       \
+}								       \
+/* vector operator << : shift left all elements */		       \
+static inline V_US operator << (V_US const & a, int32_t b) {	       \
+    return a << (uint32_t)b;					       \
+}
+
+
+
+/*** Combos ****/
+#define COMBINED_BOILERPLATE_VECINT(V_T, V_B)	\
+    BOILERPLATE_INCDEC(V_T)			\
+    BOILERPLATE_ASSIGNMENTS(V_T)		\
+    BOILERPLATE_COMPARES(V_T, V_B)		\
+    BOILERPLATE_BITWISE(V_T)			\
+    BOILERPLATE_MISC(V_T, V_B)
+
+/*
+#define COMBINED_BOILERPLATE_UNSIGNED(V_US, V_S, V_B) \
+    COMBINED_BOILERPLATE_STANDARD(V_US, V_B)	      \
+    UNSIGNED_BOILERPLATE_USING_SIGNED(V_US, V_S)
+*/
+
+
+
+#endif
 
 
 
@@ -461,58 +653,66 @@ public:
 *
 *****************************************************************************/
 
-// vector operator & : bitwise and
-static inline Vec16cb operator & (Vec16cb const & a, Vec16cb const & b) {
-    return Vec16cb(Vec128b(a) & Vec128b(b));
-}
-static inline Vec16cb operator && (Vec16cb const & a, Vec16cb const & b) {
-    return a & b;
-}
-// vector operator &= : bitwise and
-static inline Vec16cb & operator &= (Vec16cb & a, Vec16cb const & b) {
-    a = a & b;
-    return a;
+
+/**** More boilerplate, for boolean elements ******/
+
+#define OPERATOR_BOILERPLATE_VECBOOL(V_TB)				\
+/* vector operator & : bitwise and */				        \
+static inline V_TB operator & (V_TB const & a, V_TB const & b) {	\
+    return V_TB(Vec128b(a) & Vec128b(b));				\
+}									\
+static inline V_TB operator && (V_TB const & a, V_TB const & b) {	\
+    return a & b;							\
+}									\
+/* vector operator &= : bitwise and */					\
+static inline V_TB & operator &= (V_TB & a, V_TB const & b) {		\
+    a = a & b;								\
+    return a;								\
+}									\
+									\
+/* vector operator | : bitwise or */					\
+static inline V_TB operator | (V_TB const & a, V_TB const & b) {	\
+    return V_TB(Vec128b(a) | Vec128b(b));				\
+}									\
+static inline V_TB operator || (V_TB const & a, V_TB const & b) {	\
+    return a | b;							\
+}									\
+/* vector operator |= : bitwise or */					\
+static inline V_TB & operator |= (V_TB & a, V_TB const & b) {		\
+    a = a | b;								\
+    return a;								\
+}									\
+									\
+/* vector operator ^ : bitwise xor */					\
+static inline V_TB operator ^ (V_TB const & a, V_TB const & b) {	\
+    return V_TB(Vec128b(a) ^ Vec128b(b));				\
+}									\
+/* vector operator ^= : bitwise xor */					\
+static inline V_TB & operator ^= (V_TB & a, V_TB const & b) {		\
+    a = a ^ b;								\
+    return a;								\
+}									\
+									\
+/* vector operator ~ : bitwise not */					\
+static inline V_TB operator ~ (V_TB const & a) {			\
+    return V_TB( ~ Vec128b(a));						\
+}									\
+									\
+/* vector operator ! : element not */					\
+static inline V_TB operator ! (V_TB const & a) {			\
+    return ~ a;								\
+}									\
+									\
+/* vector function andnot */						\
+static inline V_TB andnot (V_TB const & a, V_TB const & b) {		\
+    return V_TB(andnot(Vec128b(a), Vec128b(b)));			\
 }
 
-// vector operator | : bitwise or
-static inline Vec16cb operator | (Vec16cb const & a, Vec16cb const & b) {
-    return Vec16cb(Vec128b(a) | Vec128b(b));
-}
-static inline Vec16cb operator || (Vec16cb const & a, Vec16cb const & b) {
-    return a | b;
-}
-// vector operator |= : bitwise or
-static inline Vec16cb & operator |= (Vec16cb & a, Vec16cb const & b) {
-    a = a | b;
-    return a;
-}
 
-// vector operator ^ : bitwise xor
-static inline Vec16cb operator ^ (Vec16cb const & a, Vec16cb const & b) {
-    return Vec16cb(Vec128b(a) ^ Vec128b(b));
-}
-// vector operator ^= : bitwise xor
-static inline Vec16cb & operator ^= (Vec16cb & a, Vec16cb const & b) {
-    a = a ^ b;
-    return a;
-}
+OPERATOR_BOILERPLATE_VECBOOL(Vec16cb)
 
-// vector operator ~ : bitwise not
-static inline Vec16cb operator ~ (Vec16cb const & a) {
-    return Vec16cb( ~ Vec128b(a));
-}
 
-// vector operator ! : element not
-static inline Vec16cb operator ! (Vec16cb const & a) {
-    return ~ a;
-}
-
-// vector function andnot
-static inline Vec16cb andnot (Vec16cb const & a, Vec16cb const & b) {
-    return Vec16cb(andnot(Vec128b(a), Vec128b(b)));
-}
-
-// Horizontal Boolean functions for Vec16cb
+// Horizontal Boolean functions for Vec16cb (also used by Vec8cb, Vec4ib, and Vec2ib)
 
 // horizontal_and. Returns true if all elements are true
 static inline bool horizontal_and(Vec16cb const & a) {
@@ -543,25 +743,6 @@ static inline Vec16c operator + (Vec16c const & a, Vec16c const & b) {
     return _mm_add_epi8(a, b);
 }
 
-// vector operator += : add
-static inline Vec16c & operator += (Vec16c & a, Vec16c const & b) {
-    a = a + b;
-    return a;
-}
-
-// postfix operator ++
-static inline Vec16c operator ++ (Vec16c & a, int) {
-    Vec16c a0 = a;
-    a = a + 1;
-    return a0;
-}
-
-// prefix operator ++
-static inline Vec16c & operator ++ (Vec16c & a) {
-    a = a + 1;
-    return a;
-}
-
 // vector operator - : subtract element by element
 static inline Vec16c operator - (Vec16c const & a, Vec16c const & b) {
     return _mm_sub_epi8(a, b);
@@ -570,25 +751,6 @@ static inline Vec16c operator - (Vec16c const & a, Vec16c const & b) {
 // vector operator - : unary minus
 static inline Vec16c operator - (Vec16c const & a) {
     return _mm_sub_epi8(_mm_setzero_si128(), a);
-}
-
-// vector operator -= : add
-static inline Vec16c & operator -= (Vec16c & a, Vec16c const & b) {
-    a = a - b;
-    return a;
-}
-
-// postfix operator --
-static inline Vec16c operator -- (Vec16c & a, int) {
-    Vec16c a0 = a;
-    a = a - 1;
-    return a0;
-}
-
-// prefix operator --
-static inline Vec16c & operator -- (Vec16c & a) {
-    a = a - 1;
-    return a;
 }
 
 // vector operator * : multiply element by element
@@ -604,24 +766,12 @@ static inline Vec16c operator * (Vec16c const & a, Vec16c const & b) {
     return product;
 }
 
-// vector operator *= : multiply
-static inline Vec16c & operator *= (Vec16c & a, Vec16c const & b) {
-    a = a * b;
-    return a;
-}
-
 // vector operator << : shift left all elements
 static inline Vec16c operator << (Vec16c const & a, int b) {
     uint32_t mask = (uint32_t)0xFF >> (uint32_t)b;         // mask to remove bits that are shifted out
     __m128i am    = _mm_and_si128(a,_mm_set1_epi8((char)mask));  // remove bits that will overflow
     __m128i res   = _mm_sll_epi16(am,_mm_cvtsi32_si128(b));// 16-bit shifts
     return res;
-}
-
-// vector operator <<= : shift left
-static inline Vec16c & operator <<= (Vec16c & a, int b) {
-    a = a << b;
-    return a;
 }
 
 // vector operator >> : shift right arithmetic all elements
@@ -634,11 +784,6 @@ static inline Vec16c operator >> (Vec16c const & a, int b) {
     return res;
 }
 
-// vector operator >>= : shift right arithmetic
-static inline Vec16c & operator >>= (Vec16c & a, int b) {
-    a = a >> b;
-    return a;
-}
 
 // vector operator == : returns true for elements for which a == b
 static inline Vec16cb operator == (Vec16c const & a, Vec16c const & b) {
@@ -660,11 +805,6 @@ static inline Vec16cb operator > (Vec16c const & a, Vec16c const & b) {
     return _mm_cmpgt_epi8(a,b);
 }
 
-// vector operator < : returns true for elements for which a < b (signed)
-static inline Vec16cb operator < (Vec16c const & a, Vec16c const & b) {
-    return b > a;
-}
-
 // vector operator >= : returns true for elements for which a >= b (signed)
 static inline Vec16cb operator >= (Vec16c const & a, Vec16c const & b) {
 #ifdef __XOP__  // AMD XOP instruction set
@@ -674,70 +814,16 @@ static inline Vec16cb operator >= (Vec16c const & a, Vec16c const & b) {
 #endif
 }
 
-// vector operator <= : returns true for elements for which a <= b (signed)
-static inline Vec16cb operator <= (Vec16c const & a, Vec16c const & b) {
-    return b >= a;
-}
-
-// vector operator & : bitwise and
-static inline Vec16c operator & (Vec16c const & a, Vec16c const & b) {
-    return Vec16c(Vec128b(a) & Vec128b(b));
-}
-static inline Vec16c operator && (Vec16c const & a, Vec16c const & b) {
-    return a & b;
-}
-// vector operator &= : bitwise and
-static inline Vec16c & operator &= (Vec16c & a, Vec16c const & b) {
-    a = a & b;
-    return a;
-}
-
-// vector operator | : bitwise or
-static inline Vec16c operator | (Vec16c const & a, Vec16c const & b) {
-    return Vec16c(Vec128b(a) | Vec128b(b));
-}
-static inline Vec16c operator || (Vec16c const & a, Vec16c const & b) {
-    return a | b;
-}
-// vector operator |= : bitwise or
-static inline Vec16c & operator |= (Vec16c & a, Vec16c const & b) {
-    a = a | b;
-    return a;
-}
-
-// vector operator ^ : bitwise xor
-static inline Vec16c operator ^ (Vec16c const & a, Vec16c const & b) {
-    return Vec16c(Vec128b(a) ^ Vec128b(b));
-}
-// vector operator ^= : bitwise xor
-static inline Vec16c & operator ^= (Vec16c & a, Vec16c const & b) {
-    a = a ^ b;
-    return a;
-}
-
-// vector operator ~ : bitwise not
-static inline Vec16c operator ~ (Vec16c const & a) {
-    return Vec16c( ~ Vec128b(a));
-}
-
 // vector operator ! : logical not, returns true for elements == 0
 static inline Vec16cb operator ! (Vec16c const & a) {
     return _mm_cmpeq_epi8(a,_mm_setzero_si128());
 }
 
+
+COMBINED_BOILERPLATE_VECINT(Vec16c, Vec16cb)
+
+
 // Functions for this class
-
-// Select between two operands. Corresponds to this pseudocode:
-// for (int i = 0; i < 16; i++) result[i] = s[i] ? a[i] : b[i];
-// Each byte in s must be either 0 (false) or -1 (true). No other values are allowed.
-static inline Vec16c select (Vec16cb const & s, Vec16c const & a, Vec16c const & b) {
-    return selectb(s,a,b);
-}
-
-// Conditional add: For all vector elements i: result[i] = f[i] ? (a[i] + b[i]) : a[i]
-static inline Vec16c if_add (Vec16cb const & f, Vec16c const & a, Vec16c const & b) {
-    return a + (Vec16c(f) & b);
-}
 
 // function add_saturated: add element by element, signed with saturation
 static inline Vec16c add_saturated(Vec16c const & a, Vec16c const & b) {
@@ -882,28 +968,12 @@ static inline Vec16uc operator << (Vec16uc const & a, uint32_t b) {
     return res;
 }
 
-// vector operator << : shift left all elements
-static inline Vec16uc operator << (Vec16uc const & a, int32_t b) {
-    return a << (uint32_t)b;
-}
-
 // vector operator >> : shift right logical all elements
 static inline Vec16uc operator >> (Vec16uc const & a, uint32_t b) {
     uint32_t mask = (uint32_t)0xFF << (uint32_t)b;         // mask to remove bits that are shifted out
     __m128i am    = _mm_and_si128(a,_mm_set1_epi8((char)mask));  // remove bits that will overflow
     __m128i res   = _mm_srl_epi16(am,_mm_cvtsi32_si128(b));// 16-bit shifts
     return res;
-}
-
-// vector operator >> : shift right logical all elements
-static inline Vec16uc operator >> (Vec16uc const & a, int32_t b) {
-    return a >> (uint32_t)b;
-}
-
-// vector operator >>= : shift right logical
-static inline Vec16uc & operator >>= (Vec16uc & a, int b) {
-    a = a >> b;
-    return a;
 }
 
 // vector operator >= : returns true for elements for which a >= b (unsigned)
@@ -915,11 +985,6 @@ static inline Vec16cb operator >= (Vec16uc const & a, Vec16uc const & b) {
 #endif
 }
 
-// vector operator <= : returns true for elements for which a <= b (unsigned)
-static inline Vec16cb operator <= (Vec16uc const & a, Vec16uc const & b) {
-    return b >= a;
-}
-
 // vector operator > : returns true for elements for which a > b (unsigned)
 static inline Vec16cb operator > (Vec16uc const & a, Vec16uc const & b) {
 #ifdef __XOP__  // AMD XOP instruction set
@@ -929,66 +994,8 @@ static inline Vec16cb operator > (Vec16uc const & a, Vec16uc const & b) {
 #endif
 }
 
-// vector operator < : returns true for elements for which a < b (unsigned)
-static inline Vec16cb operator < (Vec16uc const & a, Vec16uc const & b) {
-    return b > a;
-}
-
-// vector operator + : add
-static inline Vec16uc operator + (Vec16uc const & a, Vec16uc const & b) {
-    return Vec16uc (Vec16c(a) + Vec16c(b));
-}
-
-// vector operator - : subtract
-static inline Vec16uc operator - (Vec16uc const & a, Vec16uc const & b) {
-    return Vec16uc (Vec16c(a) - Vec16c(b));
-}
-
-// vector operator * : multiply
-static inline Vec16uc operator * (Vec16uc const & a, Vec16uc const & b) {
-    return Vec16uc (Vec16c(a) * Vec16c(b));
-}
-
-// vector operator & : bitwise and
-static inline Vec16uc operator & (Vec16uc const & a, Vec16uc const & b) {
-    return Vec16uc(Vec128b(a) & Vec128b(b));
-}
-static inline Vec16uc operator && (Vec16uc const & a, Vec16uc const & b) {
-    return a & b;
-}
-
-// vector operator | : bitwise or
-static inline Vec16uc operator | (Vec16uc const & a, Vec16uc const & b) {
-    return Vec16uc(Vec128b(a) | Vec128b(b));
-}
-static inline Vec16uc operator || (Vec16uc const & a, Vec16uc const & b) {
-    return a | b;
-}
-
-// vector operator ^ : bitwise xor
-static inline Vec16uc operator ^ (Vec16uc const & a, Vec16uc const & b) {
-    return Vec16uc(Vec128b(a) ^ Vec128b(b));
-}
-
-// vector operator ~ : bitwise not
-static inline Vec16uc operator ~ (Vec16uc const & a) {
-    return Vec16uc( ~ Vec128b(a));
-}
-
 // Functions for this class
 
-// Select between two operands. Corresponds to this pseudocode:
-// for (int i = 0; i < 16; i++) result[i] = s[i] ? a[i] : b[i];
-// Each byte in s must be either 0 (false) or -1 (true). No other values are allowed.
-// (s is signed)
-static inline Vec16uc select (Vec16cb const & s, Vec16uc const & a, Vec16uc const & b) {
-    return selectb(s,a,b);
-}
-
-// Conditional add: For all vector elements i: result[i] = f[i] ? (a[i] + b[i]) : a[i]
-static inline Vec16uc if_add (Vec16cb const & f, Vec16uc const & a, Vec16uc const & b) {
-    return a + (Vec16uc(f) & b);
-}
 
 // function add_saturated: add element by element, unsigned with saturation
 static inline Vec16uc add_saturated(Vec16uc const & a, Vec16uc const & b) {
@@ -1011,7 +1018,10 @@ static inline Vec16uc min(Vec16uc const & a, Vec16uc const & b) {
 }
 
 
-    
+COMBINED_BOILERPLATE_VECINT(Vec16uc, Vec16cb)
+UNSIGNED_BOILERPLATE_USING_SIGNED(Vec16uc, Vec16cb)
+
+
 /*****************************************************************************
 *
 *          Vector of 8 16-bit signed integers
@@ -1219,56 +1229,7 @@ public:
 *
 *****************************************************************************/
 
-// vector operator & : bitwise and
-static inline Vec8sb operator & (Vec8sb const & a, Vec8sb const & b) {
-    return Vec8sb(Vec128b(a) & Vec128b(b));
-}
-static inline Vec8sb operator && (Vec8sb const & a, Vec8sb const & b) {
-    return a & b;
-}
-// vector operator &= : bitwise and
-static inline Vec8sb & operator &= (Vec8sb & a, Vec8sb const & b) {
-    a = a & b;
-    return a;
-}
-
-// vector operator | : bitwise or
-static inline Vec8sb operator | (Vec8sb const & a, Vec8sb const & b) {
-    return Vec8sb(Vec128b(a) | Vec128b(b));
-}
-static inline Vec8sb operator || (Vec8sb const & a, Vec8sb const & b) {
-    return a | b;
-}
-// vector operator |= : bitwise or
-static inline Vec8sb & operator |= (Vec8sb & a, Vec8sb const & b) {
-    a = a | b;
-    return a;
-}
-
-// vector operator ^ : bitwise xor
-static inline Vec8sb operator ^ (Vec8sb const & a, Vec8sb const & b) {
-    return Vec8sb(Vec128b(a) ^ Vec128b(b));
-}
-// vector operator ^= : bitwise xor
-static inline Vec8sb & operator ^= (Vec8sb & a, Vec8sb const & b) {
-    a = a ^ b;
-    return a;
-}
-
-// vector operator ~ : bitwise not
-static inline Vec8sb operator ~ (Vec8sb const & a) {
-    return Vec8sb( ~ Vec128b(a));
-}
-
-// vector operator ! : element not
-static inline Vec8sb operator ! (Vec8sb const & a) {
-    return ~ a;
-}
-
-// vector function andnot
-static inline Vec8sb andnot (Vec8sb const & a, Vec8sb const & b) {
-    return Vec8sb(andnot(Vec128b(a), Vec128b(b)));
-}
+OPERATOR_BOILERPLATE_VECBOOL(Vec8sb)
 
 // Horizontal Boolean functions for Vec8sb
 
@@ -1293,25 +1254,6 @@ static inline Vec8s operator + (Vec8s const & a, Vec8s const & b) {
     return _mm_add_epi16(a, b);
 }
 
-// vector operator += : add
-static inline Vec8s & operator += (Vec8s & a, Vec8s const & b) {
-    a = a + b;
-    return a;
-}
-
-// postfix operator ++
-static inline Vec8s operator ++ (Vec8s & a, int) {
-    Vec8s a0 = a;
-    a = a + 1;
-    return a0;
-}
-
-// prefix operator ++
-static inline Vec8s & operator ++ (Vec8s & a) {
-    a = a + 1;
-    return a;
-}
-
 // vector operator - : subtract element by element
 static inline Vec8s operator - (Vec8s const & a, Vec8s const & b) {
     return _mm_sub_epi16(a, b);
@@ -1322,34 +1264,9 @@ static inline Vec8s operator - (Vec8s const & a) {
     return _mm_sub_epi16(_mm_setzero_si128(), a);
 }
 
-// vector operator -= : subtract
-static inline Vec8s & operator -= (Vec8s & a, Vec8s const & b) {
-    a = a - b;
-    return a;
-}
-
-// postfix operator --
-static inline Vec8s operator -- (Vec8s & a, int) {
-    Vec8s a0 = a;
-    a = a - 1;
-    return a0;
-}
-
-// prefix operator --
-static inline Vec8s & operator -- (Vec8s & a) {
-    a = a - 1;
-    return a;
-}
-
 // vector operator * : multiply element by element
 static inline Vec8s operator * (Vec8s const & a, Vec8s const & b) {
     return _mm_mullo_epi16(a, b);
-}
-
-// vector operator *= : multiply
-static inline Vec8s & operator *= (Vec8s & a, Vec8s const & b) {
-    a = a * b;
-    return a;
 }
 
 // vector operator / : divide all elements by same integer
@@ -1361,21 +1278,9 @@ static inline Vec8s operator << (Vec8s const & a, int b) {
     return _mm_sll_epi16(a,_mm_cvtsi32_si128(b));
 }
 
-// vector operator <<= : shift left
-static inline Vec8s & operator <<= (Vec8s & a, int b) {
-    a = a << b;
-    return a;
-}
-
 // vector operator >> : shift right arithmetic
 static inline Vec8s operator >> (Vec8s const & a, int b) {
     return _mm_sra_epi16(a,_mm_cvtsi32_si128(b));
-}
-
-// vector operator >>= : shift right arithmetic
-static inline Vec8s & operator >>= (Vec8s & a, int b) {
-    a = a >> b;
-    return a;
 }
 
 // vector operator == : returns true for elements for which a == b
@@ -1397,11 +1302,6 @@ static inline Vec8sb operator > (Vec8s const & a, Vec8s const & b) {
     return _mm_cmpgt_epi16(a, b);
 }
 
-// vector operator < : returns true for elements for which a < b
-static inline Vec8sb operator < (Vec8s const & a, Vec8s const & b) {
-    return b > a;
-}
-
 // vector operator >= : returns true for elements for which a >= b (signed)
 static inline Vec8sb operator >= (Vec8s const & a, Vec8s const & b) {
 #ifdef __XOP__  // AMD XOP instruction set
@@ -1411,51 +1311,6 @@ static inline Vec8sb operator >= (Vec8s const & a, Vec8s const & b) {
 #endif
 }
 
-// vector operator <= : returns true for elements for which a <= b (signed)
-static inline Vec8sb operator <= (Vec8s const & a, Vec8s const & b) {
-    return b >= a;
-}
-
-// vector operator & : bitwise and
-static inline Vec8s operator & (Vec8s const & a, Vec8s const & b) {
-    return Vec8s(Vec128b(a) & Vec128b(b));
-}
-static inline Vec8s operator && (Vec8s const & a, Vec8s const & b) {
-    return a & b;
-}
-// vector operator &= : bitwise and
-static inline Vec8s & operator &= (Vec8s & a, Vec8s const & b) {
-    a = a & b;
-    return a;
-}
-
-// vector operator | : bitwise or
-static inline Vec8s operator | (Vec8s const & a, Vec8s const & b) {
-    return Vec8s(Vec128b(a) | Vec128b(b));
-}
-static inline Vec8s operator || (Vec8s const & a, Vec8s const & b) {
-    return a | b;
-}
-// vector operator |= : bitwise or
-static inline Vec8s & operator |= (Vec8s & a, Vec8s const & b) {
-    a = a | b;
-    return a;
-}
-
-// vector operator ^ : bitwise xor
-static inline Vec8s operator ^ (Vec8s const & a, Vec8s const & b) {
-    return Vec8s(Vec128b(a) ^ Vec128b(b));
-}
-// vector operator ^= : bitwise xor
-static inline Vec8s & operator ^= (Vec8s & a, Vec8s const & b) {
-    a = a ^ b;
-    return a;
-}
-
-// vector operator ~ : bitwise not
-static inline Vec8s operator ~ (Vec8s const & a) {
-    return Vec8s( ~ Vec128b(a));
-}
 
 // vector operator ! : logical not, returns true for elements == 0
 static inline Vec8s operator ! (Vec8s const & a) {
@@ -1463,19 +1318,6 @@ static inline Vec8s operator ! (Vec8s const & a) {
 }
 
 // Functions for this class
-
-// Select between two operands. Corresponds to this pseudocode:
-// for (int i = 0; i < 8; i++) result[i] = s[i] ? a[i] : b[i];
-// Each byte in s must be either 0 (false) or -1 (true). No other values are allowed.
-// (s is signed)
-static inline Vec8s select (Vec8s const & s, Vec8s const & a, Vec8s const & b) {
-    return selectb(s,a,b);
-}
-
-// Conditional add: For all vector elements i: result[i] = f[i] ? (a[i] + b[i]) : a[i]
-static inline Vec8s if_add (Vec8sb const & f, Vec8s const & a, Vec8s const & b) {
-    return a + (Vec8s(f) & b);
-}
 
 // function add_saturated: add element by element, signed with saturation
 static inline Vec8s add_saturated(Vec8s const & a, Vec8s const & b) {
@@ -1527,6 +1369,8 @@ static inline Vec8s rotate_left(Vec8s const & a, int b) {
 #endif
 }
 
+
+COMBINED_BOILERPLATE_VECINT(Vec8s, Vec8sb)
 
 /*****************************************************************************
 *
@@ -1585,52 +1429,19 @@ public:
 
 // Define operators for this class
 
-// vector operator + : add
-static inline Vec8us operator + (Vec8us const & a, Vec8us const & b) {
-    return Vec8us (Vec8s(a) + Vec8s(b));
-}
-
-// vector operator - : subtract
-static inline Vec8us operator - (Vec8us const & a, Vec8us const & b) {
-    return Vec8us (Vec8s(a) - Vec8s(b));
-}
-
-// vector operator * : multiply
-static inline Vec8us operator * (Vec8us const & a, Vec8us const & b) {
-    return Vec8us (Vec8s(a) * Vec8s(b));
-}
-
-// vector operator / : divide
-// See bottom of file
-
 // vector operator >> : shift right logical all elements
 static inline Vec8us operator >> (Vec8us const & a, uint32_t b) {
     return _mm_srl_epi16(a,_mm_cvtsi32_si128(b)); 
 }
-
-// vector operator >> : shift right logical all elements
-static inline Vec8us operator >> (Vec8us const & a, int32_t b) {
-    return a >> (uint32_t)b;
-}
-
-// vector operator >>= : shift right logical
-static inline Vec8us & operator >>= (Vec8us & a, int b) {
-    a = a >> b;
-    return a;
-}
-
 // vector operator << : shift left all elements
 static inline Vec8us operator << (Vec8us const & a, uint32_t b) {
     return _mm_sll_epi16(a,_mm_cvtsi32_si128(b)); 
 }
 
-// vector operator << : shift left all elements
-static inline Vec8us operator << (Vec8us const & a, int32_t b) {
-    return a << (uint32_t)b;
-}
+// bugfix: return sb, not s
 
 // vector operator >= : returns true for elements for which a >= b (unsigned)
-static inline Vec8s operator >= (Vec8us const & a, Vec8us const & b) {
+static inline Vec8sb operator >= (Vec8us const & a, Vec8us const & b) {
 #ifdef __XOP__  // AMD XOP instruction set
     return _mm_comge_epu16(a,b);
 #elif INSTRSET >= 5   // SSE4.1
@@ -1642,10 +1453,11 @@ static inline Vec8s operator >= (Vec8us const & a, Vec8us const & b) {
 #endif
 }
 
-// vector operator <= : returns true for elements for which a <= b (unsigned)
-static inline Vec8s operator <= (Vec8us const & a, Vec8us const & b) {
-    return b >= a;
-}
+
+COMBINED_BOILERPLATE_VECINT(Vec8us, Vec8sb)
+UNSIGNED_BOILERPLATE_USING_UNSIGNED(Vec8us, Vec8s)
+
+
 
 // vector operator > : returns true for elements for which a > b (unsigned)
 static inline Vec8s operator > (Vec8us const & a, Vec8us const & b) {
@@ -1656,51 +1468,7 @@ static inline Vec8s operator > (Vec8us const & a, Vec8us const & b) {
 #endif
 }
 
-// vector operator < : returns true for elements for which a < b (unsigned)
-static inline Vec8s operator < (Vec8us const & a, Vec8us const & b) {
-    return b > a;
-}
-
-// vector operator & : bitwise and
-static inline Vec8us operator & (Vec8us const & a, Vec8us const & b) {
-    return Vec8us(Vec128b(a) & Vec128b(b));
-}
-static inline Vec8us operator && (Vec8us const & a, Vec8us const & b) {
-    return a & b;
-}
-
-// vector operator | : bitwise or
-static inline Vec8us operator | (Vec8us const & a, Vec8us const & b) {
-    return Vec8us(Vec128b(a) | Vec128b(b));
-}
-static inline Vec8us operator || (Vec8us const & a, Vec8us const & b) {
-    return a | b;
-}
-
-// vector operator ^ : bitwise xor
-static inline Vec8us operator ^ (Vec8us const & a, Vec8us const & b) {
-    return Vec8us(Vec128b(a) ^ Vec128b(b));
-}
-
-// vector operator ~ : bitwise not
-static inline Vec8us operator ~ (Vec8us const & a) {
-    return Vec8us( ~ Vec128b(a));
-}
-
 // Functions for this class
-
-// Select between two operands. Corresponds to this pseudocode:
-// for (int i = 0; i < 8; i++) result[i] = s[i] ? a[i] : b[i];
-// Each word in s must be either 0 (false) or -1 (true). No other values are allowed.
-// (s is signed)
-static inline Vec8us select (Vec8s const & s, Vec8us const & a, Vec8us const & b) {
-    return selectb(s,a,b);
-}
-
-// Conditional add: For all vector elements i: result[i] = f[i] ? (a[i] + b[i]) : a[i]
-static inline Vec8us if_add (Vec8sb const & f, Vec8us const & a, Vec8us const & b) {
-    return a + (Vec8us(f) & b);
-}
 
 // function add_saturated: add element by element, unsigned with saturation
 static inline Vec8us add_saturated(Vec8us const & a, Vec8us const & b) {
@@ -1912,56 +1680,7 @@ public:
 *
 *****************************************************************************/
 
-// vector operator & : bitwise and
-static inline Vec4ib operator & (Vec4ib const & a, Vec4ib const & b) {
-    return Vec4ib(Vec128b(a) & Vec128b(b));
-}
-static inline Vec4ib operator && (Vec4ib const & a, Vec4ib const & b) {
-    return a & b;
-}
-// vector operator &= : bitwise and
-static inline Vec4ib & operator &= (Vec4ib & a, Vec4ib const & b) {
-    a = a & b;
-    return a;
-}
-
-// vector operator | : bitwise or
-static inline Vec4ib operator | (Vec4ib const & a, Vec4ib const & b) {
-    return Vec4ib(Vec128b(a) | Vec128b(b));
-}
-static inline Vec4ib operator || (Vec4ib const & a, Vec4ib const & b) {
-    return a | b;
-}
-// vector operator |= : bitwise or
-static inline Vec4ib & operator |= (Vec4ib & a, Vec4ib const & b) {
-    a = a | b;
-    return a;
-}
-
-// vector operator ^ : bitwise xor
-static inline Vec4ib operator ^ (Vec4ib const & a, Vec4ib const & b) {
-    return Vec4ib(Vec128b(a) ^ Vec128b(b));
-}
-// vector operator ^= : bitwise xor
-static inline Vec4ib & operator ^= (Vec4ib & a, Vec4ib const & b) {
-    a = a ^ b;
-    return a;
-}
-
-// vector operator ~ : bitwise not
-static inline Vec4ib operator ~ (Vec4ib const & a) {
-    return Vec4ib( ~ Vec128b(a));
-}
-
-// vector operator ! : element not
-static inline Vec4ib operator ! (Vec4ib const & a) {
-    return ~ a;
-}
-
-// vector function andnot
-static inline Vec4ib andnot (Vec4ib const & a, Vec4ib const & b) {
-    return Vec4ib(andnot(Vec128b(a), Vec128b(b)));
-}
+OPERATOR_BOILERPLATE_VECBOOL(Vec4ib)
 
 // Horizontal Boolean functions for Vec4ib.  On some CPUs, movmskps may be as fast, and smaller code-size
 
@@ -2140,9 +1859,11 @@ static inline Vec4i operator | (Vec4i const & a, Vec4i const & b) {
 static inline Vec4i operator || (Vec4i const & a, Vec4i const & b) {
     return a | b;
 }
+int global_v4i_operator_or_equal;
 // vector operator |= : bitwise and
 static inline Vec4i & operator |= (Vec4i & a, Vec4i const & b) {
     a = a | b;
+    global_v4i_operator_or_equal = 1;
     return a;
 }
 
@@ -2700,56 +2421,7 @@ public:
 *
 *****************************************************************************/
 
-// vector operator & : bitwise and
-static inline Vec2qb operator & (Vec2qb const & a, Vec2qb const & b) {
-    return Vec2qb(Vec128b(a) & Vec128b(b));
-}
-static inline Vec2qb operator && (Vec2qb const & a, Vec2qb const & b) {
-    return a & b;
-}
-// vector operator &= : bitwise and
-static inline Vec2qb & operator &= (Vec2qb & a, Vec2qb const & b) {
-    a = a & b;
-    return a;
-}
-
-// vector operator | : bitwise or
-static inline Vec2qb operator | (Vec2qb const & a, Vec2qb const & b) {
-    return Vec2qb(Vec128b(a) | Vec128b(b));
-}
-static inline Vec2qb operator || (Vec2qb const & a, Vec2qb const & b) {
-    return a | b;
-}
-// vector operator |= : bitwise or
-static inline Vec2qb & operator |= (Vec2qb & a, Vec2qb const & b) {
-    a = a | b;
-    return a;
-}
-
-// vector operator ^ : bitwise xor
-static inline Vec2qb operator ^ (Vec2qb const & a, Vec2qb const & b) {
-    return Vec2qb(Vec128b(a) ^ Vec128b(b));
-}
-// vector operator ^= : bitwise xor
-static inline Vec2qb & operator ^= (Vec2qb & a, Vec2qb const & b) {
-    a = a ^ b;
-    return a;
-}
-
-// vector operator ~ : bitwise not
-static inline Vec2qb operator ~ (Vec2qb const & a) {
-    return Vec2qb( ~ Vec128b(a));
-}
-
-// vector operator ! : element not
-static inline Vec2qb operator ! (Vec2qb const & a) {
-    return ~ a;
-}
-
-// vector function andnot
-static inline Vec2qb andnot (Vec2qb const & a, Vec2qb const & b) {
-    return Vec2qb(andnot(Vec128b(a), Vec128b(b)));
-}
+OPERATOR_BOILERPLATE_VECBOOL(Vec2qb)
 
 // Horizontal Boolean functions for Vec2qb
 
