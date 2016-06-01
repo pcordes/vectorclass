@@ -1,7 +1,7 @@
 /****************************  vectori128.h   *******************************
 * Author:        Agner Fog
 * Date created:  2012-05-30
-* Last modified: 2016-04-26
+* Last modified: 2016-05-30
 * Version:       1.22
 * Project:       vector classes
 * Description:
@@ -521,12 +521,15 @@ static inline bool horizontal_and(Vec16cb const & a) {
 
 // horizontal_or. Returns true if at least one element is true
 static inline bool horizontal_or(Vec16cb const & a) {
-#if INSTRSET >= 5   // SSE4.1 supported. Use PTEST
+#if INSTRSET >= 5   // SSE4.1 supported. Use PTEST.
+    // Saves code size but can't macro-fuse with a jcc the way pmovmskb/test can.  (And PTEST is 2 uops on Intel)
+    // Maybe only use PTEST if XOP or SSE4A are available?  i.e. tuning for AMD Bulldozer-family or Jaguar
+    // where pmovmskb is the same number of m-ops as ptest
     return !_mm_testz_si128(a, a);
 #else
     return _mm_movemask_epi8(a) != 0;
 #endif
-} 
+}
 
 
 /*****************************************************************************
@@ -644,6 +647,7 @@ static inline Vec16cb operator == (Vec16c const & a, Vec16c const & b) {
 
 // vector operator != : returns true for elements for which a != b
 static inline Vec16cb operator != (Vec16c const & a, Vec16c const & b) {
+// TODO: AVX512 _mm_cmpneq_epi8_mask generates a mask, not a vector
 #ifdef __XOP__  // AMD XOP instruction set
     return (Vec16cb)_mm_comneq_epi8(a,b);
 #else  // SSE2 instruction set
@@ -1270,16 +1274,11 @@ static inline Vec8sb andnot (Vec8sb const & a, Vec8sb const & b) {
 
 // horizontal_and. Returns true if all elements are true
 static inline bool horizontal_and(Vec8sb const & a) {
-    return _mm_movemask_epi8(a) == 0xFFFF;
+    return horizontal_and(Vec16cb(a));
 }
-
 // horizontal_or. Returns true if at least one element is true
 static inline bool horizontal_or(Vec8sb const & a) {
-#if INSTRSET >= 5   // SSE4.1 supported. Use PTEST
-    return !_mm_testz_si128(a, a);
-#else
-    return _mm_movemask_epi8(a) != 0;
-#endif
+    return horizontal_or(Vec16cb(a));
 }
 
 
@@ -1964,20 +1963,16 @@ static inline Vec4ib andnot (Vec4ib const & a, Vec4ib const & b) {
     return Vec4ib(andnot(Vec128b(a), Vec128b(b)));
 }
 
-// Horizontal Boolean functions for Vec4ib
+// Horizontal Boolean functions for Vec4ib.  On some CPUs, movmskps may be as fast, and smaller code-size
 
 // horizontal_and. Returns true if all elements are true
 static inline bool horizontal_and(Vec4ib const & a) {
-    return _mm_movemask_epi8(a) == 0xFFFF;
+    return horizontal_and(Vec16cb(a));
 }
 
 // horizontal_or. Returns true if at least one element is true
 static inline bool horizontal_or(Vec4ib const & a) {
-#if INSTRSET >= 5   // SSE4.1 supported. Use PTEST
-    return !_mm_testz_si128(a, a);
-#else
-    return _mm_movemask_epi8(a) != 0;
-#endif
+    return horizontal_or(Vec16cb(a));
 }
 
 
@@ -2760,17 +2755,12 @@ static inline Vec2qb andnot (Vec2qb const & a, Vec2qb const & b) {
 
 // horizontal_and. Returns true if all elements are true
 static inline bool horizontal_and(Vec2qb const & a) {
-    return _mm_movemask_epi8(a) == 0xFFFF;
+    return horizontal_and(Vec16cb (a));
 }
-
 // horizontal_or. Returns true if at least one element is true
 static inline bool horizontal_or(Vec2qb const & a) {
-#if INSTRSET >= 5   // SSE4.1 supported. Use PTEST
-    return !_mm_testz_si128(a, a);
-#else
-    return _mm_movemask_epi8(a) != 0;
-#endif
-} 
+    return horizontal_or(Vec16cb (a));
+}
 
 
 /*****************************************************************************
