@@ -3251,18 +3251,10 @@ static inline Vec2uq min(Vec2uq const & a, Vec2uq const & b) {
 
 
 
-/****************************************************************************
- *
- *         Horizontal sums
- *
- ****************************************************************************
- * hsum
- */
-
-
 // workaround for lack of  movq r64, xmm  in 32bit mode.
 #if defined(_M_AMD64) || defined(_M_X64) || defined(__x86_64__) || defined(__amd64)
 static inline int64_t extract_lowi64(__m128i const & a) { return _mm_cvtsi128_si64(a); }
+//static inline uint64_t extract_lowu64(__m128i const & a) { return _mm_cvtsi128_si64(a); }
 #else
 static inline int64_t extract_lowi64(__m128i const & a) {
     union {
@@ -3275,10 +3267,16 @@ static inline int64_t extract_lowi64(__m128i const & a) {
 #endif
 
 
+/****************************************************************************
+ *
+ *         Horizontal sums
+ *
+ ****************************************************************************/
+
 // Horizontal add: Calculates the sum of all vector elements.
 // Overflow will wrap around
 static inline int64_t horizontal_add (Vec2q const & a) {
-#if defined(__AVX__) // || defined(SLOW_SHUFFLE) punpckhqdq is 2 uops or m-ops + 1 for movdqa, vs. 3 for pshufd
+#if defined(__AVX__)        // || defined(SLOW_SHUFFLE) punpckhqdq is 2 uops or m-ops + 1 for movdqa, vs. 3 for pshufd
     __m128i shuf  = _mm_unpackhi_epi64(a, a);             // Saves the immediate byte with AVX, but no longer works as a load-and-shuffle
 #else
     __m128i shuf  = _mm_shuffle_epi32(a,0xEE);            // saves a mov.  Compilers can always choose a different shuffle
