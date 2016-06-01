@@ -1468,7 +1468,7 @@ static inline Vec8s operator ! (Vec8s const & a) {
 // for (int i = 0; i < 8; i++) result[i] = s[i] ? a[i] : b[i];
 // Each byte in s must be either 0 (false) or -1 (true). No other values are allowed.
 // (s is signed)
-static inline Vec8s select (Vec8s const & s, Vec8s const & a, Vec8s const & b) {
+static inline Vec8s select (Vec8sb const & s, Vec8s const & a, Vec8s const & b) {
     return selectb(s,a,b);
 }
 
@@ -1630,7 +1630,7 @@ static inline Vec8us operator << (Vec8us const & a, int32_t b) {
 }
 
 // vector operator >= : returns true for elements for which a >= b (unsigned)
-static inline Vec8s operator >= (Vec8us const & a, Vec8us const & b) {
+static inline Vec8sb operator >= (Vec8us const & a, Vec8us const & b) {
 #ifdef __XOP__  // AMD XOP instruction set
     return _mm_comge_epu16(a,b);
 #elif INSTRSET >= 5   // SSE4.1
@@ -1643,21 +1643,21 @@ static inline Vec8s operator >= (Vec8us const & a, Vec8us const & b) {
 }
 
 // vector operator <= : returns true for elements for which a <= b (unsigned)
-static inline Vec8s operator <= (Vec8us const & a, Vec8us const & b) {
+static inline Vec8sb operator <= (Vec8us const & a, Vec8us const & b) {
     return b >= a;
 }
 
 // vector operator > : returns true for elements for which a > b (unsigned)
-static inline Vec8s operator > (Vec8us const & a, Vec8us const & b) {
+static inline Vec8sb operator > (Vec8us const & a, Vec8us const & b) {
 #ifdef __XOP__  // AMD XOP instruction set
-    return (Vec8s)_mm_comgt_epu16(a,b);
+    return (Vec8sb)_mm_comgt_epu16(a,b);
 #else  // SSE2 instruction set
-    return Vec8s (~(b >= a));
+    return Vec8sb (~(b >= a));
 #endif
 }
 
 // vector operator < : returns true for elements for which a < b (unsigned)
-static inline Vec8s operator < (Vec8us const & a, Vec8us const & b) {
+static inline Vec8sb operator < (Vec8us const & a, Vec8us const & b) {
     return b > a;
 }
 
@@ -1693,7 +1693,7 @@ static inline Vec8us operator ~ (Vec8us const & a) {
 // for (int i = 0; i < 8; i++) result[i] = s[i] ? a[i] : b[i];
 // Each word in s must be either 0 (false) or -1 (true). No other values are allowed.
 // (s is signed)
-static inline Vec8us select (Vec8s const & s, Vec8us const & a, Vec8us const & b) {
+static inline Vec8us select (Vec8sb const & s, Vec8us const & a, Vec8us const & b) {
     return selectb(s,a,b);
 }
 
@@ -5964,7 +5964,7 @@ static inline Vec8us divide_by_ui(Vec8us const & x) {
     __m128i xm = _mm_mulhi_epu16(x1, multv);                         // high part of 16x16->32 bit unsigned multiplication
     Vec8us q    = _mm_srli_epi16(xm, b);                             // shift right by b
     if (round_down) {
-        Vec8s overfl = (x1 == (Vec8us)_mm_setzero_si128());                  // check for overflow of x+1
+        Vec8sb overfl = (x1 == (Vec8us)_mm_setzero_si128());                  // check for overflow of x+1
         return select(overfl, Vec8us(mult >> b), q);                 // deal with overflow (rarely needed)
     }
     else {
