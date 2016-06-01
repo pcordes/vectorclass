@@ -302,6 +302,7 @@ static inline Vec8fb andnot(Vec8fb const & a, Vec8fb const & b) {
 *****************************************************************************/
 
 // horizontal_and. Returns true if all bits are 1
+// assuming this is really a boolean vector where alements are all-1 or all-0
 static inline bool horizontal_and (Vec8fb const & a) {
     return _mm256_testc_ps(a,constant8f<-1,-1,-1,-1,-1,-1,-1,-1>()) != 0;
 }
