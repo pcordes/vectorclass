@@ -735,51 +735,6 @@ static inline Vec16c if_add (Vec16cb const & f, Vec16c const & a, Vec16c const &
     return a + (Vec16c(f) & b);
 }
 
-// Horizontal add: Calculates the sum of all vector elements.
-// Overflow will wrap around
-static inline int32_t horizontal_add (Vec16c const & a) {
-    __m128i sum1 = _mm_sad_epu8(a,_mm_setzero_si128());
-    __m128i sum2 = _mm_shuffle_epi32(sum1,2);
-    __m128i sum3 = _mm_add_epi16(sum1,sum2);
-    int8_t  sum4 = (int8_t)_mm_cvtsi128_si32(sum3);        // truncate to 8 bits
-    return  sum4;                                          // sign extend to 32 bits
-}
-
-// Horizontal add extended: Calculates the sum of all vector elements.
-// Each element is sign-extended before addition to avoid overflow
-static inline int32_t horizontal_add_x (Vec16c const & a) {
-#ifdef __XOP__       // AMD XOP instruction set
-    __m128i sum1  = _mm_haddq_epi8(a);
-    __m128i sum2  = _mm_shuffle_epi32(sum1,0x0E);          // high element
-    __m128i sum3  = _mm_add_epi32(sum1,sum2);              // sum
-    return          _mm_cvtsi128_si32(sum3);
-#elif  INSTRSET >= 4  // SSSE3
-    __m128i aeven = _mm_slli_epi16(a,8);                   // even numbered elements of a. get sign bit in position
-            aeven = _mm_srai_epi16(aeven,8);               // sign extend even numbered elements
-    __m128i aodd  = _mm_srai_epi16(a,8);                   // sign extend odd  numbered elements
-    __m128i sum1  = _mm_add_epi16(aeven,aodd);             // add even and odd elements
-    __m128i sum2  = _mm_hadd_epi16(sum1,sum1);             // horizontally add 8 elements in 3 steps
-    __m128i sum3  = _mm_hadd_epi16(sum2,sum2);
-    __m128i sum4  = _mm_hadd_epi16(sum3,sum3);
-    int16_t sum5  = (int16_t)_mm_cvtsi128_si32(sum4);      // 16 bit sum
-    return  sum5;                                          // sign extend to 32 bits
-#else                 // SSE2
-    __m128i aeven = _mm_slli_epi16(a,8);                   // even numbered elements of a. get sign bit in position
-            aeven = _mm_srai_epi16(aeven,8);               // sign extend even numbered elements
-    __m128i aodd  = _mm_srai_epi16(a,8);                   // sign extend odd  numbered elements
-    __m128i sum1  = _mm_add_epi16(aeven,aodd);             // add even and odd elements
-    __m128i sum2  = _mm_shuffle_epi32(sum1,0x0E);          // 4 high elements
-    __m128i sum3  = _mm_add_epi16(sum1,sum2);              // 4 sums
-    __m128i sum4  = _mm_shuffle_epi32(sum3,0x01);          // 2 high elements
-    __m128i sum5  = _mm_add_epi16(sum3,sum4);              // 2 sums
-    __m128i sum6  = _mm_shufflelo_epi16(sum5,0x01);        // 1 high element
-    __m128i sum7  = _mm_add_epi16(sum5,sum6);              // 1 sum
-    int16_t sum8  = _mm_cvtsi128_si32(sum7);               // 16 bit sum
-    return  sum8;                                          // sign extend to 32 bits
-#endif
-}
-
-
 // function add_saturated: add element by element, signed with saturation
 static inline Vec16c add_saturated(Vec16c const & a, Vec16c const & b) {
     return _mm_adds_epi8(a, b);
@@ -1029,26 +984,6 @@ static inline Vec16uc select (Vec16cb const & s, Vec16uc const & a, Vec16uc cons
 // Conditional add: For all vector elements i: result[i] = f[i] ? (a[i] + b[i]) : a[i]
 static inline Vec16uc if_add (Vec16cb const & f, Vec16uc const & a, Vec16uc const & b) {
     return a + (Vec16uc(f) & b);
-}
-
-// Horizontal add: Calculates the sum of all vector elements.
-// Overflow will wrap around
-// (Note: horizontal_add_x(Vec16uc) is slightly faster)
-static inline uint32_t horizontal_add (Vec16uc const & a) {
-    __m128i sum1 = _mm_sad_epu8(a,_mm_setzero_si128());
-    __m128i sum2 = _mm_shuffle_epi32(sum1,2);
-    __m128i sum3 = _mm_add_epi16(sum1,sum2);
-    uint16_t sum4 = (uint16_t)_mm_cvtsi128_si32(sum3);      // truncate to 16 bits
-    return  sum4;
-}
-
-// Horizontal add extended: Calculates the sum of all vector elements.
-// Each element is zero-extended before addition to avoid overflow
-static inline uint32_t horizontal_add_x (Vec16uc const & a) {
-    __m128i sum1 = _mm_sad_epu8(a,_mm_setzero_si128());
-    __m128i sum2 = _mm_shuffle_epi32(sum1,2);
-    __m128i sum3 = _mm_add_epi16(sum1,sum2);
-    return _mm_cvtsi128_si32(sum3);
 }
 
 // function add_saturated: add element by element, unsigned with saturation
@@ -1543,62 +1478,6 @@ static inline Vec8s if_add (Vec8sb const & f, Vec8s const & a, Vec8s const & b) 
     return a + (Vec8s(f) & b);
 }
 
-// Horizontal add: Calculates the sum of all vector elements.
-// Overflow will wrap around
-static inline int32_t horizontal_add (Vec8s const & a) {
-#ifdef __XOP__       // AMD XOP instruction set
-    __m128i sum1  = _mm_haddq_epi16(a);
-    __m128i sum2  = _mm_shuffle_epi32(sum1,0x0E);          // high element
-    __m128i sum3  = _mm_add_epi32(sum1,sum2);              // sum
-    int16_t sum4  = _mm_cvtsi128_si32(sum3);               // truncate to 16 bits
-    return  sum4;                                          // sign extend to 32 bits
-#elif  INSTRSET >= 4  // SSSE3
-    __m128i sum1  = _mm_hadd_epi16(a,a);                   // horizontally add 8 elements in 3 steps
-    __m128i sum2  = _mm_hadd_epi16(sum1,sum1);
-    __m128i sum3  = _mm_hadd_epi16(sum2,sum2);
-    int16_t sum4  = (int16_t)_mm_cvtsi128_si32(sum3);      // 16 bit sum
-    return  sum4;                                          // sign extend to 32 bits
-#else                 // SSE2
-    __m128i sum1  = _mm_shuffle_epi32(a,0x0E);             // 4 high elements
-    __m128i sum2  = _mm_add_epi16(a,sum1);                 // 4 sums
-    __m128i sum3  = _mm_shuffle_epi32(sum2,0x01);          // 2 high elements
-    __m128i sum4  = _mm_add_epi16(sum2,sum3);              // 2 sums
-    __m128i sum5  = _mm_shufflelo_epi16(sum4,0x01);        // 1 high element
-    __m128i sum6  = _mm_add_epi16(sum4,sum5);              // 1 sum
-    int16_t sum7  = _mm_cvtsi128_si32(sum6);               // 16 bit sum
-    return  sum7;                                          // sign extend to 32 bits
-#endif
-}
-
-// Horizontal add extended: Calculates the sum of all vector elements.
-// Elements are sign extended before adding to avoid overflow
-static inline int32_t horizontal_add_x (Vec8s const & a) {
-#ifdef __XOP__       // AMD XOP instruction set
-    __m128i sum1  = _mm_haddq_epi16(a);
-    __m128i sum2  = _mm_shuffle_epi32(sum1,0x0E);          // high element
-    __m128i sum3  = _mm_add_epi32(sum1,sum2);              // sum
-    return          _mm_cvtsi128_si32(sum3);
-#elif  INSTRSET >= 4  // SSSE3
-    __m128i aeven = _mm_slli_epi32(a,16);                  // even numbered elements of a. get sign bit in position
-            aeven = _mm_srai_epi32(aeven,16);              // sign extend even numbered elements
-    __m128i aodd  = _mm_srai_epi32(a,16);                  // sign extend odd  numbered elements
-    __m128i sum1  = _mm_add_epi32(aeven,aodd);             // add even and odd elements
-    __m128i sum2  = _mm_hadd_epi32(sum1,sum1);             // horizontally add 4 elements in 2 steps
-    __m128i sum3  = _mm_hadd_epi32(sum2,sum2);
-    return  _mm_cvtsi128_si32(sum3);
-#else                 // SSE2
-    __m128i aeven = _mm_slli_epi32(a,16);                  // even numbered elements of a. get sign bit in position
-            aeven = _mm_srai_epi32(aeven,16);              // sign extend even numbered elements
-    __m128i aodd  = _mm_srai_epi32(a,16);                  // sign extend odd  numbered elements
-    __m128i sum1  = _mm_add_epi32(aeven,aodd);             // add even and odd elements
-    __m128i sum2  = _mm_shuffle_epi32(sum1,0x0E);          // 2 high elements
-    __m128i sum3  = _mm_add_epi32(sum1,sum2);
-    __m128i sum4  = _mm_shuffle_epi32(sum3,0x01);          // 1 high elements
-    __m128i sum5  = _mm_add_epi32(sum3,sum4);
-    return  _mm_cvtsi128_si32(sum5);                       // 32 bit sum
-#endif
-}
-
 // function add_saturated: add element by element, signed with saturation
 static inline Vec8s add_saturated(Vec8s const & a, Vec8s const & b) {
     return _mm_adds_epi16(a, b);
@@ -1822,62 +1701,6 @@ static inline Vec8us select (Vec8s const & s, Vec8us const & a, Vec8us const & b
 // Conditional add: For all vector elements i: result[i] = f[i] ? (a[i] + b[i]) : a[i]
 static inline Vec8us if_add (Vec8sb const & f, Vec8us const & a, Vec8us const & b) {
     return a + (Vec8us(f) & b);
-}
-
-// Horizontal add: Calculates the sum of all vector elements.
-// Overflow will wrap around
-static inline uint32_t horizontal_add (Vec8us const & a) {
-#ifdef __XOP__     // AMD XOP instruction set
-    __m128i sum1  = _mm_haddq_epu16(a);
-    __m128i sum2  = _mm_shuffle_epi32(sum1,0x0E);          // high element
-    __m128i sum3  = _mm_add_epi32(sum1,sum2);              // sum
-    uint16_t sum4 = _mm_cvtsi128_si32(sum3);               // truncate to 16 bits
-    return  sum4;                                          // zero extend to 32 bits
-#elif  INSTRSET >= 4  // SSSE3
-    __m128i sum1  = _mm_hadd_epi16(a,a);                   // horizontally add 8 elements in 3 steps
-    __m128i sum2  = _mm_hadd_epi16(sum1,sum1);
-    __m128i sum3  = _mm_hadd_epi16(sum2,sum2);
-    uint16_t sum4 = (uint16_t)_mm_cvtsi128_si32(sum3);     // 16 bit sum
-    return  sum4;                                          // zero extend to 32 bits
-#else                 // SSE2
-    __m128i sum1  = _mm_shuffle_epi32(a,0x0E);             // 4 high elements
-    __m128i sum2  = _mm_add_epi16(a,sum1);                 // 4 sums
-    __m128i sum3  = _mm_shuffle_epi32(sum2,0x01);          // 2 high elements
-    __m128i sum4  = _mm_add_epi16(sum2,sum3);              // 2 sums
-    __m128i sum5  = _mm_shufflelo_epi16(sum4,0x01);        // 1 high element
-    __m128i sum6  = _mm_add_epi16(sum4,sum5);              // 1 sum
-    uint16_t sum7 = _mm_cvtsi128_si32(sum6);               // 16 bit sum
-    return  sum7;                                          // zero extend to 32 bits
-#endif
-}
-
-// Horizontal add extended: Calculates the sum of all vector elements.
-// Each element is zero-extended before addition to avoid overflow
-static inline uint32_t horizontal_add_x (Vec8us const & a) {
-#ifdef __XOP__     // AMD XOP instruction set
-    __m128i sum1  = _mm_haddq_epu16(a);
-    __m128i sum2  = _mm_shuffle_epi32(sum1,0x0E);          // high element
-    __m128i sum3  = _mm_add_epi32(sum1,sum2);              // sum
-    return          _mm_cvtsi128_si32(sum3);
-#elif INSTRSET >= 4  // SSSE3
-    __m128i mask  = _mm_set1_epi32(0x0000FFFF);            // mask for even positions
-    __m128i aeven = _mm_and_si128(a,mask);                 // even numbered elements of a
-    __m128i aodd  = _mm_srli_epi32(a,16);                  // zero extend odd numbered elements
-    __m128i sum1  = _mm_add_epi32(aeven,aodd);             // add even and odd elements
-    __m128i sum2  = _mm_hadd_epi32(sum1,sum1);             // horizontally add 4 elements in 2 steps
-    __m128i sum3  = _mm_hadd_epi32(sum2,sum2);
-    return  _mm_cvtsi128_si32(sum3);
-#else                 // SSE2
-    __m128i mask  = _mm_set1_epi32(0x0000FFFF);            // mask for even positions
-    __m128i aeven = _mm_and_si128(a,mask);                 // even numbered elements of a
-    __m128i aodd  = _mm_srli_epi32(a,16);                  // zero extend odd numbered elements
-    __m128i sum1  = _mm_add_epi32(aeven,aodd);             // add even and odd elements
-    __m128i sum2  = _mm_shuffle_epi32(sum1,0x0E);          // 2 high elements
-    __m128i sum3  = _mm_add_epi32(sum1,sum2);
-    __m128i sum4  = _mm_shuffle_epi32(sum3,0x01);          // 1 high elements
-    __m128i sum5  = _mm_add_epi32(sum3,sum4);
-    return  _mm_cvtsi128_si32(sum5);               // 16 bit sum
-#endif
 }
 
 // function add_saturated: add element by element, unsigned with saturation
@@ -2363,51 +2186,6 @@ static inline Vec4i if_add (Vec4ib const & f, Vec4i const & a, Vec4i const & b) 
     return a + (Vec4i(f) & b);
 }
 
-// Horizontal add: Calculates the sum of all vector elements.
-// Overflow will wrap around
-static inline int32_t horizontal_add (Vec4i const & a) {
-#ifdef __XOP__       // AMD XOP instruction set
-    __m128i sum1  = _mm_haddq_epi32(a);
-    __m128i sum2  = _mm_shuffle_epi32(sum1,0x0E);          // high element
-    __m128i sum3  = _mm_add_epi32(sum1,sum2);              // sum
-    return          _mm_cvtsi128_si32(sum3);               // truncate to 32 bits
-#elif  INSTRSET >= 4  // SSSE3
-    __m128i sum1  = _mm_hadd_epi32(a,a);                   // horizontally add 4 elements in 2 steps
-    __m128i sum2  = _mm_hadd_epi32(sum1,sum1);
-    return          _mm_cvtsi128_si32(sum2);               // 32 bit sum
-#else                 // SSE2
-    __m128i sum1  = _mm_shuffle_epi32(a,0x0E);             // 2 high elements
-    __m128i sum2  = _mm_add_epi32(a,sum1);                 // 2 sums
-    __m128i sum3  = _mm_shuffle_epi32(sum2,0x01);          // 1 high element
-    __m128i sum4  = _mm_add_epi32(sum2,sum3);              // 2 sums
-    return          _mm_cvtsi128_si32(sum4);               // 32 bit sum
-#endif
-}
-
-// Horizontal add extended: Calculates the sum of all vector elements.
-// Elements are sign extended before adding to avoid overflow
-static inline int64_t horizontal_add_x (Vec4i const & a) {
-#ifdef __XOP__     // AMD XOP instruction set
-    __m128i sum1  = _mm_haddq_epi32(a);
-#else              // SSE2
-    __m128i signs = _mm_srai_epi32(a,31);                  // sign of all elements
-    __m128i a01   = _mm_unpacklo_epi32(a,signs);           // sign-extended a0, a1
-    __m128i a23   = _mm_unpackhi_epi32(a,signs);           // sign-extended a2, a3
-    __m128i sum1  = _mm_add_epi64(a01,a23);                // add
-#endif
-    __m128i sum2  = _mm_unpackhi_epi64(sum1,sum1);         // high qword
-    __m128i sum3  = _mm_add_epi64(sum1,sum2);              // add
-#if defined (__x86_64__)
-    return          _mm_cvtsi128_si64(sum3);               // 64 bit mode
-#else
-    union {
-        __m128i x;  // silly definition of _mm_storel_epi64 requires __m128i
-        int64_t i;
-    } u;
-    _mm_storel_epi64(&u.x,sum3);
-    return u.i;
-#endif
-}
 
 // function add_saturated: add element by element, signed with saturation
 static inline Vec4i add_saturated(Vec4i const & a, Vec4i const & b) {
@@ -2661,37 +2439,6 @@ static inline Vec4ui select (Vec4ib const & s, Vec4ui const & a, Vec4ui const & 
 // Conditional add: For all vector elements i: result[i] = f[i] ? (a[i] + b[i]) : a[i]
 static inline Vec4ui if_add (Vec4ib const & f, Vec4ui const & a, Vec4ui const & b) {
     return a + (Vec4ui(f) & b);
-}
-
-// Horizontal add: Calculates the sum of all vector elements.
-// Overflow will wrap around
-static inline uint32_t horizontal_add (Vec4ui const & a) {
-    return horizontal_add((Vec4i)a);
-}
-
-// Horizontal add extended: Calculates the sum of all vector elements.
-// Elements are zero extended before adding to avoid overflow
-static inline uint64_t horizontal_add_x (Vec4ui const & a) {
-#ifdef __XOP__     // AMD XOP instruction set
-    __m128i sum1  = _mm_haddq_epu32(a);
-#else              // SSE2
-    __m128i zero  = _mm_setzero_si128();                   // 0
-    __m128i a01   = _mm_unpacklo_epi32(a,zero);            // zero-extended a0, a1
-    __m128i a23   = _mm_unpackhi_epi32(a,zero);            // zero-extended a2, a3
-    __m128i sum1  = _mm_add_epi64(a01,a23);                // add
-#endif
-    __m128i sum2  = _mm_unpackhi_epi64(sum1,sum1);         // high qword
-    __m128i sum3  = _mm_add_epi64(sum1,sum2);              // add
-#if defined(_M_AMD64) || defined(_M_X64) || defined(__x86_64__) || defined(__amd64)
-    return          _mm_cvtsi128_si64(sum3);               // 64 bit mode
-#else
-    union {
-        __m128i x;  // silly definition of _mm_storel_epi64 requires __m128i
-        uint64_t i;
-    } u;
-    _mm_storel_epi64(&u.x,sum3);
-    return u.i;
-#endif
 }
 
 // function add_saturated: add element by element, unsigned with saturation
@@ -3271,23 +3018,6 @@ static inline Vec2q if_add (Vec2qb const & f, Vec2q const & a, Vec2q const & b) 
     return a + (Vec2q(f) & b);
 }
 
-// Horizontal add: Calculates the sum of all vector elements.
-// Overflow will wrap around
-static inline int64_t horizontal_add (Vec2q const & a) {
-    __m128i sum1  = _mm_shuffle_epi32(a,0x0E);             // high element
-    __m128i sum2  = _mm_add_epi64(a,sum1);                 // sum
-#if defined(__x86_64__)
-    return          _mm_cvtsi128_si64(sum2);               // 64 bit mode
-#else
-    union {
-        __m128i x;  // silly definition of _mm_storel_epi64 requires __m128i
-        int64_t i;
-    } u;
-    _mm_storel_epi64(&u.x,sum2);
-    return u.i;
-#endif
-}
-
 // function max: a > b ? a : b
 static inline Vec2q max(Vec2q const & a, Vec2q const & b) {
     return select(a > b, a, b);
@@ -3519,12 +3249,6 @@ static inline Vec2uq if_add (Vec2qb const & f, Vec2uq const & a, Vec2uq const & 
     return a + (Vec2uq(f) & b);
 }
 
-// Horizontal add: Calculates the sum of all vector elements.
-// Overflow will wrap around
-static inline uint64_t horizontal_add (Vec2uq const & a) {
-    return horizontal_add((Vec2q)a);
-}
-
 // function max: a > b ? a : b
 static inline Vec2uq max(Vec2uq const & a, Vec2uq const & b) {
     return select(a > b, a, b);
@@ -3534,6 +3258,292 @@ static inline Vec2uq max(Vec2uq const & a, Vec2uq const & b) {
 static inline Vec2uq min(Vec2uq const & a, Vec2uq const & b) {
     return select(a > b, b, a);
 }
+
+
+
+/****************************************************************************
+ *
+ *         Horizontal sums
+ *
+ ****************************************************************************
+ * hsum
+ */
+
+// Horizontal add: Calculates the sum of all vector elements.
+// Overflow will wrap around
+static inline int64_t horizontal_add (Vec2q const & a) {
+    __m128i sum1  = _mm_shuffle_epi32(a,0x0E);             // high element
+    __m128i sum2  = _mm_add_epi64(a,sum1);                 // sum
+#if defined(__x86_64__)
+    return          _mm_cvtsi128_si64(sum2);               // 64 bit mode
+#else
+    union {
+        __m128i x;  // silly definition of _mm_storel_epi64 requires __m128i
+        int64_t i;
+    } u;
+    _mm_storel_epi64(&u.x,sum2);
+    return u.i;
+#endif
+}
+
+// Horizontal add: Calculates the sum of all vector elements.
+// Overflow will wrap around
+static inline uint64_t horizontal_add (Vec2uq const & a) {
+    return horizontal_add((Vec2q)a);
+}
+
+
+// Horizontal add: Calculates the sum of all vector elements.
+// Overflow will wrap around
+static inline int32_t horizontal_add (Vec8s const & a) {
+#ifdef __XOP__       // AMD XOP instruction set
+    __m128i sum1  = _mm_haddq_epi16(a);
+    __m128i sum2  = _mm_shuffle_epi32(sum1,0x0E);          // high element
+    __m128i sum3  = _mm_add_epi32(sum1,sum2);              // sum
+    int16_t sum4  = _mm_cvtsi128_si32(sum3);               // truncate to 16 bits
+    return  sum4;                                          // sign extend to 32 bits
+#elif  INSTRSET >= 4  // SSSE3
+    __m128i sum1  = _mm_hadd_epi16(a,a);                   // horizontally add 8 elements in 3 steps
+    __m128i sum2  = _mm_hadd_epi16(sum1,sum1);
+    __m128i sum3  = _mm_hadd_epi16(sum2,sum2);
+    int16_t sum4  = (int16_t)_mm_cvtsi128_si32(sum3);      // 16 bit sum
+    return  sum4;                                          // sign extend to 32 bits
+#else                 // SSE2
+    __m128i sum1  = _mm_shuffle_epi32(a,0x0E);             // 4 high elements
+    __m128i sum2  = _mm_add_epi16(a,sum1);                 // 4 sums
+    __m128i sum3  = _mm_shuffle_epi32(sum2,0x01);          // 2 high elements
+    __m128i sum4  = _mm_add_epi16(sum2,sum3);              // 2 sums
+    __m128i sum5  = _mm_shufflelo_epi16(sum4,0x01);        // 1 high element
+    __m128i sum6  = _mm_add_epi16(sum4,sum5);              // 1 sum
+    int16_t sum7  = _mm_cvtsi128_si32(sum6);               // 16 bit sum
+    return  sum7;                                          // sign extend to 32 bits
+#endif
+}
+
+// Horizontal add extended: Calculates the sum of all vector elements.
+// Elements are sign extended before adding to avoid overflow
+static inline int32_t horizontal_add_x (Vec8s const & a) {
+#ifdef __XOP__       // AMD XOP instruction set
+    __m128i sum1  = _mm_haddq_epi16(a);
+    __m128i sum2  = _mm_shuffle_epi32(sum1,0x0E);          // high element
+    __m128i sum3  = _mm_add_epi32(sum1,sum2);              // sum
+    return          _mm_cvtsi128_si32(sum3);
+#elif  INSTRSET >= 4  // SSSE3
+    __m128i aeven = _mm_slli_epi32(a,16);                  // even numbered elements of a. get sign bit in position
+            aeven = _mm_srai_epi32(aeven,16);              // sign extend even numbered elements
+    __m128i aodd  = _mm_srai_epi32(a,16);                  // sign extend odd  numbered elements
+    __m128i sum1  = _mm_add_epi32(aeven,aodd);             // add even and odd elements
+    __m128i sum2  = _mm_hadd_epi32(sum1,sum1);             // horizontally add 4 elements in 2 steps
+    __m128i sum3  = _mm_hadd_epi32(sum2,sum2);
+    return  _mm_cvtsi128_si32(sum3);
+#else                 // SSE2
+    __m128i aeven = _mm_slli_epi32(a,16);                  // even numbered elements of a. get sign bit in position
+            aeven = _mm_srai_epi32(aeven,16);              // sign extend even numbered elements
+    __m128i aodd  = _mm_srai_epi32(a,16);                  // sign extend odd  numbered elements
+    __m128i sum1  = _mm_add_epi32(aeven,aodd);             // add even and odd elements
+    __m128i sum2  = _mm_shuffle_epi32(sum1,0x0E);          // 2 high elements
+    __m128i sum3  = _mm_add_epi32(sum1,sum2);
+    __m128i sum4  = _mm_shuffle_epi32(sum3,0x01);          // 1 high elements
+    __m128i sum5  = _mm_add_epi32(sum3,sum4);
+    return  _mm_cvtsi128_si32(sum5);                       // 32 bit sum
+#endif
+}
+
+// Horizontal add: Calculates the sum of all vector elements.
+// Overflow will wrap around
+static inline uint32_t horizontal_add (Vec8us const & a) {
+#ifdef __XOP__     // AMD XOP instruction set
+    __m128i sum1  = _mm_haddq_epu16(a);
+    __m128i sum2  = _mm_shuffle_epi32(sum1,0x0E);          // high element
+    __m128i sum3  = _mm_add_epi32(sum1,sum2);              // sum
+    uint16_t sum4 = _mm_cvtsi128_si32(sum3);               // truncate to 16 bits
+    return  sum4;                                          // zero extend to 32 bits
+#elif  INSTRSET >= 4  // SSSE3
+    __m128i sum1  = _mm_hadd_epi16(a,a);                   // horizontally add 8 elements in 3 steps
+    __m128i sum2  = _mm_hadd_epi16(sum1,sum1);
+    __m128i sum3  = _mm_hadd_epi16(sum2,sum2);
+    uint16_t sum4 = (uint16_t)_mm_cvtsi128_si32(sum3);     // 16 bit sum
+    return  sum4;                                          // zero extend to 32 bits
+#else                 // SSE2
+    __m128i sum1  = _mm_shuffle_epi32(a,0x0E);             // 4 high elements
+    __m128i sum2  = _mm_add_epi16(a,sum1);                 // 4 sums
+    __m128i sum3  = _mm_shuffle_epi32(sum2,0x01);          // 2 high elements
+    __m128i sum4  = _mm_add_epi16(sum2,sum3);              // 2 sums
+    __m128i sum5  = _mm_shufflelo_epi16(sum4,0x01);        // 1 high element
+    __m128i sum6  = _mm_add_epi16(sum4,sum5);              // 1 sum
+    uint16_t sum7 = _mm_cvtsi128_si32(sum6);               // 16 bit sum
+    return  sum7;                                          // zero extend to 32 bits
+#endif
+}
+
+// Horizontal add extended: Calculates the sum of all vector elements.
+// Each element is zero-extended before addition to avoid overflow
+static inline uint32_t horizontal_add_x (Vec8us const & a) {
+#ifdef __XOP__     // AMD XOP instruction set
+    __m128i sum1  = _mm_haddq_epu16(a);
+    __m128i sum2  = _mm_shuffle_epi32(sum1,0x0E);          // high element
+    __m128i sum3  = _mm_add_epi32(sum1,sum2);              // sum
+    return          _mm_cvtsi128_si32(sum3);
+#elif INSTRSET >= 4  // SSSE3
+    __m128i mask  = _mm_set1_epi32(0x0000FFFF);            // mask for even positions
+    __m128i aeven = _mm_and_si128(a,mask);                 // even numbered elements of a
+    __m128i aodd  = _mm_srli_epi32(a,16);                  // zero extend odd numbered elements
+    __m128i sum1  = _mm_add_epi32(aeven,aodd);             // add even and odd elements
+    __m128i sum2  = _mm_hadd_epi32(sum1,sum1);             // horizontally add 4 elements in 2 steps
+    __m128i sum3  = _mm_hadd_epi32(sum2,sum2);
+    return  _mm_cvtsi128_si32(sum3);
+#else                 // SSE2
+    __m128i mask  = _mm_set1_epi32(0x0000FFFF);            // mask for even positions
+    __m128i aeven = _mm_and_si128(a,mask);                 // even numbered elements of a
+    __m128i aodd  = _mm_srli_epi32(a,16);                  // zero extend odd numbered elements
+    __m128i sum1  = _mm_add_epi32(aeven,aodd);             // add even and odd elements
+    __m128i sum2  = _mm_shuffle_epi32(sum1,0x0E);          // 2 high elements
+    __m128i sum3  = _mm_add_epi32(sum1,sum2);
+    __m128i sum4  = _mm_shuffle_epi32(sum3,0x01);          // 1 high elements
+    __m128i sum5  = _mm_add_epi32(sum3,sum4);
+    return  _mm_cvtsi128_si32(sum5);               // 16 bit sum
+#endif
+}
+
+
+// Horizontal add: Calculates the sum of all vector elements.
+// Overflow will wrap around
+static inline int32_t horizontal_add (Vec4i const & a) {
+#ifdef __XOP__       // AMD XOP instruction set
+    __m128i sum1  = _mm_haddq_epi32(a);
+    __m128i sum2  = _mm_shuffle_epi32(sum1,0x0E);          // high element
+    __m128i sum3  = _mm_add_epi32(sum1,sum2);              // sum
+    return          _mm_cvtsi128_si32(sum3);               // truncate to 32 bits
+#elif  INSTRSET >= 4  // SSSE3
+    __m128i sum1  = _mm_hadd_epi32(a,a);                   // horizontally add 4 elements in 2 steps
+    __m128i sum2  = _mm_hadd_epi32(sum1,sum1);
+    return          _mm_cvtsi128_si32(sum2);               // 32 bit sum
+#else                 // SSE2
+    __m128i sum1  = _mm_shuffle_epi32(a,0x0E);             // 2 high elements
+    __m128i sum2  = _mm_add_epi32(a,sum1);                 // 2 sums
+    __m128i sum3  = _mm_shuffle_epi32(sum2,0x01);          // 1 high element
+    __m128i sum4  = _mm_add_epi32(sum2,sum3);              // 2 sums
+    return          _mm_cvtsi128_si32(sum4);               // 32 bit sum
+#endif
+}
+
+// Horizontal add extended: Calculates the sum of all vector elements.
+// Elements are sign extended before adding to avoid overflow
+static inline int64_t horizontal_add_x (Vec4i const & a) {
+#ifdef __XOP__     // AMD XOP instruction set
+    __m128i sum1  = _mm_haddq_epi32(a);
+#else              // SSE2
+    __m128i signs = _mm_srai_epi32(a,31);                  // sign of all elements
+    __m128i a01   = _mm_unpacklo_epi32(a,signs);           // sign-extended a0, a1
+    __m128i a23   = _mm_unpackhi_epi32(a,signs);           // sign-extended a2, a3
+    __m128i sum1  = _mm_add_epi64(a01,a23);                // add
+#endif
+    __m128i sum2  = _mm_unpackhi_epi64(sum1,sum1);         // high qword
+    __m128i sum3  = _mm_add_epi64(sum1,sum2);              // add
+#if defined (__x86_64__)
+    return          _mm_cvtsi128_si64(sum3);               // 64 bit mode
+#else
+    union {
+        __m128i x;  // silly definition of _mm_storel_epi64 requires __m128i
+        int64_t i;
+    } u;
+    _mm_storel_epi64(&u.x,sum3);
+    return u.i;
+#endif
+}
+
+
+// Horizontal add: Calculates the sum of all vector elements.
+// Overflow will wrap around
+static inline uint32_t horizontal_add (Vec4ui const & a) {
+    return horizontal_add((Vec4i)a);
+}
+
+// Horizontal add extended: Calculates the sum of all vector elements.
+// Elements are zero extended before adding to avoid overflow
+static inline uint64_t horizontal_add_x (Vec4ui const & a) {
+#ifdef __XOP__     // AMD XOP instruction set
+    __m128i sum1  = _mm_haddq_epu32(a);
+#else              // SSE2
+    __m128i zero  = _mm_setzero_si128();                   // 0
+    __m128i a01   = _mm_unpacklo_epi32(a,zero);            // zero-extended a0, a1
+    __m128i a23   = _mm_unpackhi_epi32(a,zero);            // zero-extended a2, a3
+    __m128i sum1  = _mm_add_epi64(a01,a23);                // add
+#endif
+    __m128i sum2  = _mm_unpackhi_epi64(sum1,sum1);         // high qword
+    __m128i sum3  = _mm_add_epi64(sum1,sum2);              // add
+#if defined(_M_AMD64) || defined(_M_X64) || defined(__x86_64__) || defined(__amd64)
+    return          _mm_cvtsi128_si64(sum3);               // 64 bit mode
+#else
+    union {
+        __m128i x;  // silly definition of _mm_storel_epi64 requires __m128i
+        uint64_t i;
+    } u;
+    _mm_storel_epi64(&u.x,sum3);
+    return u.i;
+#endif
+}
+
+
+// Horizontal add extended: Calculates the sum of all vector elements.
+// Each element is zero-extended before addition to avoid overflow
+static inline uint32_t horizontal_add_x (Vec16uc const & a) {
+    __m128i sum1 = _mm_sad_epu8(a,_mm_setzero_si128());
+    __m128i sum2 = _mm_shuffle_epi32(sum1,2);
+    __m128i sum3 = _mm_add_epi16(sum1,sum2);
+    return _mm_cvtsi128_si32(sum3);
+}
+
+// Horizontal add: Calculates the sum of all vector elements.
+// Overflow will wrap around   // FIXME: really? we only truncate to 16 bits
+// (Note: horizontal_add_x(Vec16uc) is slightly faster)
+static inline uint32_t horizontal_add (Vec16uc const & a) {
+    return (uint16_t)horizontal_add_x(a);      // truncate to 16 bits
+}
+
+// Horizontal add: Calculates the sum of all vector elements.
+// Overflow will wrap around
+static inline int32_t horizontal_add (Vec16c const & a) {
+    return (int8_t)horizontal_add_x((Vec16uc)a);      // truncate to 8 bits and sign-extend to 32
+}
+
+// Horizontal add extended: Calculates the sum of all vector elements.
+// Each element is sign-extended before addition to avoid overflow
+// TODO: range-shift to unsigned, then shift back?
+static inline int32_t horizontal_add_x (Vec16c const & a) {
+#ifdef __XOP__       // AMD XOP instruction set
+    __m128i sum1  = _mm_haddq_epi8(a);
+    __m128i sum2  = _mm_shuffle_epi32(sum1,0x0E);          // high element
+    __m128i sum3  = _mm_add_epi32(sum1,sum2);              // sum
+    return          _mm_cvtsi128_si32(sum3);
+#elif  INSTRSET >= 4  // SSSE3
+    __m128i aeven = _mm_slli_epi16(a,8);                   // even numbered elements of a. get sign bit in position
+            aeven = _mm_srai_epi16(aeven,8);               // sign extend even numbered elements
+    __m128i aodd  = _mm_srai_epi16(a,8);                   // sign extend odd  numbered elements
+    __m128i sum1  = _mm_add_epi16(aeven,aodd);             // add even and odd elements
+
+    __m128i sum2  = _mm_hadd_epi16(sum1,sum1);             // horizontally add 8 elements in 3 steps
+    __m128i sum3  = _mm_hadd_epi16(sum2,sum2);
+    __m128i sum4  = _mm_hadd_epi16(sum3,sum3);
+    int16_t sum5  = (int16_t)_mm_cvtsi128_si32(sum4);      // 16 bit sum
+    return  sum5;                                          // sign extend to 32 bits
+#else                 // SSE2
+    __m128i aeven = _mm_slli_epi16(a,8);                   // even numbered elements of a. get sign bit in position
+            aeven = _mm_srai_epi16(aeven,8);               // sign extend even numbered elements
+    __m128i aodd  = _mm_srai_epi16(a,8);                   // sign extend odd  numbered elements
+    __m128i sum1  = _mm_add_epi16(aeven,aodd);             // add even and odd elements
+
+    __m128i sum2  = _mm_shuffle_epi32(sum1,0x0E);          // 4 high elements
+    __m128i sum3  = _mm_add_epi16(sum1,sum2);              // 4 sums
+    __m128i sum4  = _mm_shuffle_epi32(sum3,0x01);          // 2 high elements
+    __m128i sum5  = _mm_add_epi16(sum3,sum4);              // 2 sums
+    __m128i sum6  = _mm_shufflelo_epi16(sum5,0x01);        // 1 high element
+    __m128i sum7  = _mm_add_epi16(sum5,sum6);              // 1 sum
+    int16_t sum8  = _mm_cvtsi128_si32(sum7);               // 16 bit sum
+    return  sum8;                                          // sign extend to 32 bits
+#endif
+}
+
 
 
 /*****************************************************************************
