@@ -735,7 +735,7 @@ static inline Vec32c if_add (Vec32cb const & f, Vec32c const & a, Vec32c const &
     return a + (Vec32c(f) & b);
 }
 
-// static inline int32_t horizontal_add_x (Vec32c const & a)  // moved to after Vec32uc, to reuse its code
+// static inline int32_t horizontal_add (Vec32c const & a)  // moved to after Vec32uc, to reuse its code
 
 // Horizontal add extended: Calculates the sum of all vector elements.
 // Each element is sign-extended before addition to avoid overflow
@@ -746,8 +746,10 @@ static inline int32_t horizontal_add_x (Vec32c const & a) {
     __m256i sum1  = _mm256_add_epi16(aeven,aodd);                    // add even and odd elements
 
     __m128i shuf  = hi128i(sum1);                // wrapper for bug in MS VS 11
-    __m128i sum2  = _mm_add_epi16(shuf, lo128i(sum1));               // add high and low sum
+    __m128i sum2  = _mm_add_epi16(shuf, lo128i(sum1));               // reduce to a 128b vector of signed16
+    return (int16_t)horizontal_add(Vec8s(sum2));                    // the non_x version is faster, and we know it can't overflow
 
+/*
             shuf  = _mm_unpackhi_epi64(sum2,sum2);
     __m128i sum3  = _mm_add_epi16(shuf, sum2);
             shuf  = _mm_unpacklo_
@@ -757,6 +759,7 @@ static inline int32_t horizontal_add_x (Vec32c const & a) {
     __m256i sum4  = _mm256_hadd_epi16(sum3,sum3);
     int16_t sum7  = (int16_t)_mm_cvtsi128_si32(sum6);                // 16 bit sum
     return  sum7;                                                    // sign extend to 32 bits
+*/
 }
 
 // function add_saturated: add element by element, signed with saturation
@@ -2958,11 +2961,8 @@ static inline Vec4q if_add (Vec4qb const & f, Vec4q const & a, Vec4q const & b) 
 static inline int64_t horizontal_add (Vec4q const & a) {
     __m256i sum1  = _mm256_shuffle_epi32(a,0x0E);                     // high element
     __m256i sum2  = _mm256_add_epi64(a,sum1);                         // sum
-    __m128i sum3  = extract_hi128i(sum2, 1);                          // bug in MS compiler VS 11
-#else
-    __m128i sum3  = _mm256_extracti128_si256(sum2, 1);                // get high part
-#endif
-    __m128i sum4  = _mm_add_epi64(_mm256_castsi256_si128(sum2),sum3); // add low and high parts
+    __m128i sum3  = hi128i(sum2);                         // wrapper to workaround bug in MS compiler VS 11
+    __m128i sum4  = _mm_add_epi64(lo128i(sum2),sum3);                 // add low and high parts
 #if defined(__x86_64__)
     return          _mm_cvtsi128_si64(sum4);                          // 64 bit mode
 #else
@@ -3186,7 +3186,7 @@ static inline uint64_t horizontal_add (Vec4uq const & a) {
 }
 
 // Horizontal add extended: Calculates the sum of all vector elements.
-// Elements are sing/zero extended before adding to avoid overflow
+// Elements are sign/zero extended before adding to avoid overflow
 static inline int64_t horizontal_add_x (Vec8i const & a) {
     __m256i signs = _mm256_srai_epi32(a,31);                          // sign of all elements
     Vec4q   a01   = _mm256_unpacklo_epi32(a,signs);                   // sign-extended a0, a1, a4, a5
