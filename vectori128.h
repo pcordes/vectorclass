@@ -3295,6 +3295,69 @@ static inline uint64_t horizontal_add (Vec2uq const & a) {
 }
 
 
+
+// Horizontal add: Calculates the sum of all vector elements.
+// Overflow will wrap around
+static inline int32_t horizontal_add (Vec4i const & a) {
+#ifdef __XOP__       // AMD XOP instruction set
+    __m128i sum1  = _mm_haddq_epi32(a);
+    __m128i sum2  = _mm_shuffle_epi32(sum1,0x0E);          // high element
+    __m128i sum3  = _mm_add_epi32(sum1,sum2);              // sum
+    return          _mm_cvtsi128_si32(sum3);               // truncate to 32 bits
+#elif  INSTRSET >= 4  // SSSE3
+    __m128i sum1  = _mm_hadd_epi32(a,a);                   // horizontally add 4 elements in 2 steps
+    __m128i sum2  = _mm_hadd_epi32(sum1,sum1);
+    return          _mm_cvtsi128_si32(sum2);               // 32 bit sum
+#else                 // SSE2
+    __m128i sum1  = _mm_shuffle_epi32(a,0x0E);             // 2 high elements
+    __m128i sum2  = _mm_add_epi32(a,sum1);                 // 2 sums
+    __m128i sum3  = _mm_shuffle_epi32(sum2,0x01);          // 1 high element
+    __m128i sum4  = _mm_add_epi32(sum2,sum3);              // 2 sums
+    return          _mm_cvtsi128_si32(sum4);               // 32 bit sum
+#endif
+}
+
+// Horizontal add extended: Calculates the sum of all vector elements.
+// Elements are sign extended before adding to avoid overflow
+static inline int64_t horizontal_add_x (Vec4i const & a) {
+#ifdef __XOP__     // AMD XOP instruction set
+    __m128i sum1  = _mm_haddq_epi32(a);
+#else              // SSE2
+    __m128i signs = _mm_srai_epi32(a,31);                  // sign of all elements
+    __m128i a01   = _mm_unpacklo_epi32(a,signs);           // sign-extended a0, a1
+    __m128i a23   = _mm_unpackhi_epi32(a,signs);           // sign-extended a2, a3
+    __m128i sum1  = _mm_add_epi64(a01,a23);                // add
+#endif
+    __m128i sum2  = _mm_unpackhi_epi64(sum1,sum1);         // high qword
+    __m128i sum3  = _mm_add_epi64(sum1,sum2);              // add
+    return extract_lowi64(sum3);
+}
+
+
+// Horizontal add: Calculates the sum of all vector elements.
+// Overflow will wrap around
+static inline uint32_t horizontal_add (Vec4ui const & a) {
+    return horizontal_add((Vec4i)a);
+}
+
+// Horizontal add extended: Calculates the sum of all vector elements.
+// Elements are zero extended before adding to avoid overflow
+static inline uint64_t horizontal_add_x (Vec4ui const & a) {
+#ifdef __XOP__     // AMD XOP instruction set
+    __m128i sum1  = _mm_haddq_epu32(a);
+#else              // SSE2
+    __m128i zero  = _mm_setzero_si128();                   // 0
+    __m128i a01   = _mm_unpacklo_epi32(a,zero);            // zero-extended a0, a1
+    __m128i a23   = _mm_unpackhi_epi32(a,zero);            // zero-extended a2, a3
+    __m128i sum1  = _mm_add_epi64(a01,a23);                // add
+#endif
+    __m128i sum2  = _mm_unpackhi_epi64(sum1,sum1);         // high qword
+    __m128i sum3  = _mm_add_epi64(sum1,sum2);              // add
+    return  extract_lowi64(sum3);
+}
+
+
+
 // Horizontal add: Calculates the sum of all vector elements.
 // Overflow will wrap around
 static inline int32_t horizontal_add (Vec8s const & a) {
@@ -3407,66 +3470,6 @@ static inline uint32_t horizontal_add_x (Vec8us const & a) {
 #endif
 }
 
-
-// Horizontal add: Calculates the sum of all vector elements.
-// Overflow will wrap around
-static inline int32_t horizontal_add (Vec4i const & a) {
-#ifdef __XOP__       // AMD XOP instruction set
-    __m128i sum1  = _mm_haddq_epi32(a);
-    __m128i sum2  = _mm_shuffle_epi32(sum1,0x0E);          // high element
-    __m128i sum3  = _mm_add_epi32(sum1,sum2);              // sum
-    return          _mm_cvtsi128_si32(sum3);               // truncate to 32 bits
-#elif  INSTRSET >= 4  // SSSE3
-    __m128i sum1  = _mm_hadd_epi32(a,a);                   // horizontally add 4 elements in 2 steps
-    __m128i sum2  = _mm_hadd_epi32(sum1,sum1);
-    return          _mm_cvtsi128_si32(sum2);               // 32 bit sum
-#else                 // SSE2
-    __m128i sum1  = _mm_shuffle_epi32(a,0x0E);             // 2 high elements
-    __m128i sum2  = _mm_add_epi32(a,sum1);                 // 2 sums
-    __m128i sum3  = _mm_shuffle_epi32(sum2,0x01);          // 1 high element
-    __m128i sum4  = _mm_add_epi32(sum2,sum3);              // 2 sums
-    return          _mm_cvtsi128_si32(sum4);               // 32 bit sum
-#endif
-}
-
-// Horizontal add extended: Calculates the sum of all vector elements.
-// Elements are sign extended before adding to avoid overflow
-static inline int64_t horizontal_add_x (Vec4i const & a) {
-#ifdef __XOP__     // AMD XOP instruction set
-    __m128i sum1  = _mm_haddq_epi32(a);
-#else              // SSE2
-    __m128i signs = _mm_srai_epi32(a,31);                  // sign of all elements
-    __m128i a01   = _mm_unpacklo_epi32(a,signs);           // sign-extended a0, a1
-    __m128i a23   = _mm_unpackhi_epi32(a,signs);           // sign-extended a2, a3
-    __m128i sum1  = _mm_add_epi64(a01,a23);                // add
-#endif
-    __m128i sum2  = _mm_unpackhi_epi64(sum1,sum1);         // high qword
-    __m128i sum3  = _mm_add_epi64(sum1,sum2);              // add
-    return extract_lowi64(sum3);
-}
-
-
-// Horizontal add: Calculates the sum of all vector elements.
-// Overflow will wrap around
-static inline uint32_t horizontal_add (Vec4ui const & a) {
-    return horizontal_add((Vec4i)a);
-}
-
-// Horizontal add extended: Calculates the sum of all vector elements.
-// Elements are zero extended before adding to avoid overflow
-static inline uint64_t horizontal_add_x (Vec4ui const & a) {
-#ifdef __XOP__     // AMD XOP instruction set
-    __m128i sum1  = _mm_haddq_epu32(a);
-#else              // SSE2
-    __m128i zero  = _mm_setzero_si128();                   // 0
-    __m128i a01   = _mm_unpacklo_epi32(a,zero);            // zero-extended a0, a1
-    __m128i a23   = _mm_unpackhi_epi32(a,zero);            // zero-extended a2, a3
-    __m128i sum1  = _mm_add_epi64(a01,a23);                // add
-#endif
-    __m128i sum2  = _mm_unpackhi_epi64(sum1,sum1);         // high qword
-    __m128i sum3  = _mm_add_epi64(sum1,sum2);              // add
-    return  extract_lowi64(sum3);
-}
 
 
 // Horizontal add extended: Calculates the sum of all vector elements.
