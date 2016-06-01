@@ -3259,21 +3259,33 @@ static inline Vec2uq min(Vec2uq const & a, Vec2uq const & b) {
  * hsum
  */
 
-// Horizontal add: Calculates the sum of all vector elements.
-// Overflow will wrap around
-static inline int64_t horizontal_add (Vec2q const & a) {
-    __m128i sum1  = _mm_shuffle_epi32(a,0x0E);             // high element
-    __m128i sum2  = _mm_add_epi64(a,sum1);                 // sum
-#if defined(__x86_64__)
-    return          _mm_cvtsi128_si64(sum2);               // 64 bit mode
+
+// workaround for lack of  movq r64, xmm  in 32bit mode.
+#if defined(_M_AMD64) || defined(_M_X64) || defined(__x86_64__) || defined(__amd64)
+static inline int64_t extract_lowi64(__m128i const & a) { return _mm_cvtsi128_si64(a); }
 #else
+static inline int64_t extract_lowi64(__m128i const & a) {
     union {
         __m128i x;  // silly definition of _mm_storel_epi64 requires __m128i
         int64_t i;
-    } u;
-    _mm_storel_epi64(&u.x,sum2);
+    };
+    _mm_storel_epi64(&u.x, a);
     return u.i;
+}
 #endif
+
+
+// Horizontal add: Calculates the sum of all vector elements.
+// Overflow will wrap around
+static inline int64_t horizontal_add (Vec2q const & a) {
+#if defined(__AVX__) // || defined(SLOW_SHUFFLE) punpckhqdq is 2 uops or m-ops + 1 for movdqa, vs. 3 for pshufd
+    __m128i shuf  = _mm_unpackhi_epi64(a, a);             // Saves the immediate byte with AVX, but no longer works as a load-and-shuffle
+#else
+    __m128i shuf  = _mm_shuffle_epi32(a,0xEE);            // saves a mov.  Compilers can always choose a different shuffle
+#endif
+    __m128i sum2  = _mm_add_epi64(a, shuf);               // sum
+    // pextrq + movq + scalar add is also an option in 64bit mode, but PEXTRQ is 2 uops on its own
+    return extract_lowi64(sum2);
 }
 
 // Horizontal add: Calculates the sum of all vector elements.
@@ -3430,16 +3442,7 @@ static inline int64_t horizontal_add_x (Vec4i const & a) {
 #endif
     __m128i sum2  = _mm_unpackhi_epi64(sum1,sum1);         // high qword
     __m128i sum3  = _mm_add_epi64(sum1,sum2);              // add
-#if defined (__x86_64__)
-    return          _mm_cvtsi128_si64(sum3);               // 64 bit mode
-#else
-    union {
-        __m128i x;  // silly definition of _mm_storel_epi64 requires __m128i
-        int64_t i;
-    } u;
-    _mm_storel_epi64(&u.x,sum3);
-    return u.i;
-#endif
+    return extract_lowi64(sum3);
 }
 
 
@@ -3462,16 +3465,7 @@ static inline uint64_t horizontal_add_x (Vec4ui const & a) {
 #endif
     __m128i sum2  = _mm_unpackhi_epi64(sum1,sum1);         // high qword
     __m128i sum3  = _mm_add_epi64(sum1,sum2);              // add
-#if defined(_M_AMD64) || defined(_M_X64) || defined(__x86_64__) || defined(__amd64)
-    return          _mm_cvtsi128_si64(sum3);               // 64 bit mode
-#else
-    union {
-        __m128i x;  // silly definition of _mm_storel_epi64 requires __m128i
-        uint64_t i;
-    } u;
-    _mm_storel_epi64(&u.x,sum3);
-    return u.i;
-#endif
+    return  extract_lowi64(sum3);
 }
 
 
