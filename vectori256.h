@@ -403,10 +403,10 @@ public:
     }
     // Member functions to split into two Vec16c:
     Vec16c get_low() const {
-        return _mm256_castsi256_si128(ymm);
+        return lo128i(ymm);
     }
     Vec16c get_high() const {
-        return extract_hi128i(ymm);    // wrapper to workaround bug in MS compiler VS 11
+        return hi128i(ymm);    // wrapper to workaround bug in MS compiler VS 11
     }
     static int size() {
         return 32;
@@ -5508,7 +5508,8 @@ static inline Vec4qb to_Vec4qb(uint8_t x);
 
 #endif  // INSTRSET < 9 || MAX_VECTOR_SIZE < 512
 
-#undef extract_hi128i
+#undef hi128i
+#undef lo128i
 #ifdef VCL_NAMESPACE
 }
 #endif
