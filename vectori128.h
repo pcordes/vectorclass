@@ -3294,6 +3294,7 @@ static inline uint64_t horizontal_add (Vec2uq const & a) {
 
 
 
+
 // Horizontal add: Calculates the sum of all vector elements.
 // Overflow will wrap around
 static inline int32_t horizontal_add (Vec4i const & a) {
@@ -3315,20 +3316,20 @@ static inline int32_t horizontal_add (Vec4i const & a) {
 #endif
 }
 
+
 // Horizontal add extended: Calculates the sum of all vector elements.
 // Elements are sign extended before adding to avoid overflow
 static inline int64_t horizontal_add_x (Vec4i const & a) {
 #ifdef __XOP__     // AMD XOP instruction set
     __m128i sum1  = _mm_haddq_epi32(a);
 #else              // SSE2
+    // 64bit arithmetic right shift (like for narrower types) would probably be better, if it existed
     __m128i signs = _mm_srai_epi32(a,31);                  // sign of all elements
     __m128i a01   = _mm_unpacklo_epi32(a,signs);           // sign-extended a0, a1
     __m128i a23   = _mm_unpackhi_epi32(a,signs);           // sign-extended a2, a3
     __m128i sum1  = _mm_add_epi64(a01,a23);                // add
 #endif
-    __m128i sum2  = _mm_unpackhi_epi64(sum1,sum1);         // high qword
-    __m128i sum3  = _mm_add_epi64(sum1,sum2);              // add
-    return extract_lowi64(sum3);
+    return horizontal_add (Vec2q (sum1));
 }
 
 
@@ -3344,15 +3345,16 @@ static inline uint64_t horizontal_add_x (Vec4ui const & a) {
 #ifdef __XOP__     // AMD XOP instruction set
     __m128i sum1  = _mm_haddq_epu32(a);
 #else              // SSE2
+    // 64bit logical shifts are available.  TODO: compare pxor/unpack with shift/AND
+    // also consider clang's output for _mm_and:  pblendw imm8  (fast on all CPUs that support it)
     __m128i zero  = _mm_setzero_si128();                   // 0
     __m128i a01   = _mm_unpacklo_epi32(a,zero);            // zero-extended a0, a1
     __m128i a23   = _mm_unpackhi_epi32(a,zero);            // zero-extended a2, a3
     __m128i sum1  = _mm_add_epi64(a01,a23);                // add
 #endif
-    __m128i sum2  = _mm_unpackhi_epi64(sum1,sum1);         // high qword
-    __m128i sum3  = _mm_add_epi64(sum1,sum2);              // add
-    return  extract_lowi64(sum3);
+    return horizontal_add (Vec2uq (sum1));
 }
+
 
 
 
@@ -3391,24 +3393,12 @@ static inline int32_t horizontal_add_x (Vec8s const & a) {
     __m128i sum2  = _mm_shuffle_epi32(sum1,0x0E);          // high element
     __m128i sum3  = _mm_add_epi32(sum1,sum2);              // sum
     return          _mm_cvtsi128_si32(sum3);
-#elif  INSTRSET >= 4  // SSSE3
+#else
     __m128i aeven = _mm_slli_epi32(a,16);                  // even numbered elements of a. get sign bit in position
             aeven = _mm_srai_epi32(aeven,16);              // sign extend even numbered elements
     __m128i aodd  = _mm_srai_epi32(a,16);                  // sign extend odd  numbered elements
     __m128i sum1  = _mm_add_epi32(aeven,aodd);             // add even and odd elements
-    __m128i sum2  = _mm_hadd_epi32(sum1,sum1);             // horizontally add 4 elements in 2 steps
-    __m128i sum3  = _mm_hadd_epi32(sum2,sum2);
-    return  _mm_cvtsi128_si32(sum3);
-#else                 // SSE2
-    __m128i aeven = _mm_slli_epi32(a,16);                  // even numbered elements of a. get sign bit in position
-            aeven = _mm_srai_epi32(aeven,16);              // sign extend even numbered elements
-    __m128i aodd  = _mm_srai_epi32(a,16);                  // sign extend odd  numbered elements
-    __m128i sum1  = _mm_add_epi32(aeven,aodd);             // add even and odd elements
-    __m128i sum2  = _mm_shuffle_epi32(sum1,0x0E);          // 2 high elements
-    __m128i sum3  = _mm_add_epi32(sum1,sum2);
-    __m128i sum4  = _mm_shuffle_epi32(sum3,0x01);          // 1 high elements
-    __m128i sum5  = _mm_add_epi32(sum3,sum4);
-    return  _mm_cvtsi128_si32(sum5);                       // 32 bit sum
+    return horizontal_add(Vec4i(sum1));
 #endif
 }
 
@@ -3421,21 +3411,9 @@ static inline uint32_t horizontal_add (Vec8us const & a) {
     __m128i sum3  = _mm_add_epi32(sum1,sum2);              // sum
     uint16_t sum4 = _mm_cvtsi128_si32(sum3);               // truncate to 16 bits
     return  sum4;                                          // zero extend to 32 bits
-#elif  INSTRSET >= 4  // SSSE3
-    __m128i sum1  = _mm_hadd_epi16(a,a);                   // horizontally add 8 elements in 3 steps
-    __m128i sum2  = _mm_hadd_epi16(sum1,sum1);
-    __m128i sum3  = _mm_hadd_epi16(sum2,sum2);
-    uint16_t sum4 = (uint16_t)_mm_cvtsi128_si32(sum3);     // 16 bit sum
-    return  sum4;                                          // zero extend to 32 bits
-#else                 // SSE2
-    __m128i sum1  = _mm_shuffle_epi32(a,0x0E);             // 4 high elements
-    __m128i sum2  = _mm_add_epi16(a,sum1);                 // 4 sums
-    __m128i sum3  = _mm_shuffle_epi32(sum2,0x01);          // 2 high elements
-    __m128i sum4  = _mm_add_epi16(sum2,sum3);              // 2 sums
-    __m128i sum5  = _mm_shufflelo_epi16(sum4,0x01);        // 1 high element
-    __m128i sum6  = _mm_add_epi16(sum4,sum5);              // 1 sum
-    uint16_t sum7 = _mm_cvtsi128_si32(sum6);               // 16 bit sum
-    return  sum7;                                          // zero extend to 32 bits
+#else
+    uint16_t sum_truncated = (uint16_t)horizontal_add(Vec8s(a));  // 16 bit sum
+    return  sum_truncated;                                 // zero extend to 32 bits
 #endif
 }
 
@@ -3447,24 +3425,12 @@ static inline uint32_t horizontal_add_x (Vec8us const & a) {
     __m128i sum2  = _mm_shuffle_epi32(sum1,0x0E);          // high element
     __m128i sum3  = _mm_add_epi32(sum1,sum2);              // sum
     return          _mm_cvtsi128_si32(sum3);
-#elif INSTRSET >= 4  // SSSE3
+#else
     __m128i mask  = _mm_set1_epi32(0x0000FFFF);            // mask for even positions
     __m128i aeven = _mm_and_si128(a,mask);                 // even numbered elements of a
     __m128i aodd  = _mm_srli_epi32(a,16);                  // zero extend odd numbered elements
     __m128i sum1  = _mm_add_epi32(aeven,aodd);             // add even and odd elements
-    __m128i sum2  = _mm_hadd_epi32(sum1,sum1);             // horizontally add 4 elements in 2 steps
-    __m128i sum3  = _mm_hadd_epi32(sum2,sum2);
-    return  _mm_cvtsi128_si32(sum3);
-#else                 // SSE2
-    __m128i mask  = _mm_set1_epi32(0x0000FFFF);            // mask for even positions
-    __m128i aeven = _mm_and_si128(a,mask);                 // even numbered elements of a
-    __m128i aodd  = _mm_srli_epi32(a,16);                  // zero extend odd numbered elements
-    __m128i sum1  = _mm_add_epi32(aeven,aodd);             // add even and odd elements
-    __m128i sum2  = _mm_shuffle_epi32(sum1,0x0E);          // 2 high elements
-    __m128i sum3  = _mm_add_epi32(sum1,sum2);
-    __m128i sum4  = _mm_shuffle_epi32(sum3,0x01);          // 1 high elements
-    __m128i sum5  = _mm_add_epi32(sum3,sum4);
-    return  _mm_cvtsi128_si32(sum5);               // 16 bit sum
+    return  horizontal_add(Vec4ui(sum1));               // 16 bit sum
 #endif
 }
 
@@ -3501,31 +3467,14 @@ static inline int32_t horizontal_add_x (Vec16c const & a) {
     __m128i sum2  = _mm_shuffle_epi32(sum1,0x0E);          // high element
     __m128i sum3  = _mm_add_epi32(sum1,sum2);              // sum
     return          _mm_cvtsi128_si32(sum3);
-#elif  INSTRSET >= 4  // SSSE3
+#else
     __m128i aeven = _mm_slli_epi16(a,8);                   // even numbered elements of a. get sign bit in position
             aeven = _mm_srai_epi16(aeven,8);               // sign extend even numbered elements
     __m128i aodd  = _mm_srai_epi16(a,8);                   // sign extend odd  numbered elements
     __m128i sum1  = _mm_add_epi16(aeven,aodd);             // add even and odd elements
 
-    __m128i sum2  = _mm_hadd_epi16(sum1,sum1);             // horizontally add 8 elements in 3 steps
-    __m128i sum3  = _mm_hadd_epi16(sum2,sum2);
-    __m128i sum4  = _mm_hadd_epi16(sum3,sum3);
-    int16_t sum5  = (int16_t)_mm_cvtsi128_si32(sum4);      // 16 bit sum
-    return  sum5;                                          // sign extend to 32 bits
-#else                 // SSE2
-    __m128i aeven = _mm_slli_epi16(a,8);                   // even numbered elements of a. get sign bit in position
-            aeven = _mm_srai_epi16(aeven,8);               // sign extend even numbered elements
-    __m128i aodd  = _mm_srai_epi16(a,8);                   // sign extend odd  numbered elements
-    __m128i sum1  = _mm_add_epi16(aeven,aodd);             // add even and odd elements
-
-    __m128i sum2  = _mm_shuffle_epi32(sum1,0x0E);          // 4 high elements
-    __m128i sum3  = _mm_add_epi16(sum1,sum2);              // 4 sums
-    __m128i sum4  = _mm_shuffle_epi32(sum3,0x01);          // 2 high elements
-    __m128i sum5  = _mm_add_epi16(sum3,sum4);              // 2 sums
-    __m128i sum6  = _mm_shufflelo_epi16(sum5,0x01);        // 1 high element
-    __m128i sum7  = _mm_add_epi16(sum5,sum6);              // 1 sum
-    int16_t sum8  = _mm_cvtsi128_si32(sum7);               // 16 bit sum
-    return  sum8;                                          // sign extend to 32 bits
+    int16_t sum_trunc = horizontal_add(Vec8s(sum1));       // 16 bit sum
+    return sum_trunc;                                      // sign extend to 32 bits
 #endif
 }
 
