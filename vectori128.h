@@ -3392,19 +3392,26 @@ static inline int64_t horizontal_add_x (Vec4i const & a) {
 #ifdef __XOP__     // AMD XOP instruction set
     __m128i sum1  = _mm_haddq_epi32(a);
     return horizontal_add (Vec2q (sum1));
-#else
+#else         // SSE2 / SSE4
 
-    // 64bit arithmetic right shift (like for narrower types) would probably be better, if it existed
-    __m128i signs = _mm_srai_epi32(a,31);                  // sign of all elements
+// Same as add_x(Vec8s), but without the SSE2 shift-only option (64bit arithmetic right shift isn't available)
 #if INSTRSET >= 5     // SSE4.1 saves a movdqa, and pmovsx can run in parallel with psrad
     __m128i a01   = _mm_cvtepi32_epi64(a);                 // sign-extended a0, a1
-#else
-    __m128i a01   = _mm_unpacklo_epi32(a,signs);           // sign-extended a0, a1
-#endif
+  #ifdef __AVX__     // Non-destructive lets us mix shift/shuffle without a movdqa
+    __m128i signs = _mm_srai_epi32(a,31);                  // sign of all elements
     __m128i a23   = _mm_unpackhi_epi32(a,signs);           // sign-extended a2, a3
-    __m128i sum1  = _mm_add_epi64(a01,a23);                // add
-    return horizontal_add (Vec2q (sum1));
+  #else              // non-AVX: HILO+pmovsx to avoid movdqa
+    __m128i a23    = HILO64(a);         // See Vec8s for why this isn't destructive _mm_unpackhi
+	    a23    = _mm_cvtepi32_epi64(a23);              // sign-extended a2, a3
+  #endif
+#else // SSE2
+    __m128i signs = _mm_srai_epi32(a,31);                  // sign of all elements
+    __m128i a01   = _mm_unpacklo_epi32(a,signs);           // sign-extended a0, a1
+    __m128i a23   = _mm_unpackhi_epi32(a,signs);           // sign-extended a2, a3
+#endif
 
+    __m128i sum1  = _mm_add_epi64(a01,a23);
+    return horizontal_add (Vec2q (sum1));
 #endif	// __XOP__
 }
 
@@ -3424,14 +3431,15 @@ static inline uint64_t horizontal_add_x (Vec4ui const & a, bool use_oddeven = fa
 #else
 
     /* 4 possible strategies:
+     * SSE4.1: psrl/pblend(pxor): 1 extra movdqa when pxor is hoisted.  (0 extra when it's not: can blend into it)
+     * SSE2 psrl/pand(const): 1 extra movdqa when constant is hoisted.  Needs a non-zero constant
+     *
+     * SSE4.1: pxor/punpck/pmovzx: 0 extra movqda.
      * SSE2 pxor/punpck: 1 extra movdqa when zero is hoisted
-     * SSE2 psrl/pand: 1 extra movdqa when constant is hoisted.  Needs a non-zero constant
-     * pxor/punpck/pmovzx: SSE4.1: 0 extra movqda.
-     * pxor/pblend/psrl: SSE4.1: 1 extra movdqa when pxor is hoisted.  (0 extra when it's not: can blend into it)
      */
     if (use_oddeven){
-	// odd-even shift/mask strategy
-#if INSTRSET >= 5     // SSE4.1 pblendw doesn't need a mask
+	// odd-even shift/mask strategy, probably always worse
+#if INSTRSET >= 5     // SSE4.1 pblendw only needs an all-zero constant
 	__m128i zero  = _mm_setzero_si128();
 	__m128i aeven = _mm_blend_epi16(zero, a, 0b00110011);  // even numbered elements of a
 #else
@@ -3478,36 +3486,48 @@ static inline int32_t horizontal_add (Vec8s const & a) {
     __m128i sum6  = _mm_add_epi16(sum4,sum5);              // 1 sum
     int16_t sum7  = _mm_cvtsi128_si32(sum6);               // 16 bit sum
     return  sum7;                                          // sign extend to 32 bits
-#endif
+#endif  // __XOP__
 }
+
 
 // Horizontal add extended: Calculates the sum of all vector elements.
 // Elements are sign extended before adding to avoid overflow
-static inline int32_t horizontal_add_x (Vec8s const & a, bool use_extend = (INSTRSET>=5)) {
+static inline int32_t horizontal_add_x (Vec8s const & a, bool use_shuffles = (INSTRSET>=5)) {
 #ifdef __XOP__       // AMD XOP instruction set
+    (void) use_shuffles; // silence unused warning
     __m128i sum1  = _mm_haddq_epi16(a);
     __m128i sum2  = _mm_shuffle_epi32(sum1,0x0E);          // high element
     __m128i sum3  = _mm_add_epi32(sum1,sum2);              // sum
     return          _mm_cvtsi128_si32(sum3);
 #else
-    if(use_extend){
+    // lo/hi sign-extend with shuffles vs. odd/even sign-extend with shifts
+    if(use_shuffles){
 #if INSTRSET >= 5 // SSE4.1
-	// AVX2 alternative: vpmovsxwd ymm + vextracti128 would save a uop but have worse latency
 	// 1 movdqa (pmovsx), with more ILP (shift and shuffle can run in parallel on Intel)
 	// SSE4.1: 45B. AVX: 40B.    Bulldozer: pmovsx, punpck, and shifts all compete for P1 :/
 	__m128i lo    = _mm_cvtepi16_epi32(a);                 // sign-extended a0, a1, a2, a3
+  #ifdef __AVX__     // Non-destructive lets us mix shift/shuffle without a movdqa
 	__m128i signs = _mm_srai_epi16(a,15);                  // sign of all elements
-#else
-	// SSE2: 48B.  2 movdqa (punpck).  Not worth using vs. shifts, hence the default
+	__m128i hi    = _mm_unpackhi_epi16(a,signs);           // sign-extended a4, a5, a6, a7
+  #else              // non-AVX: HILO+pmovsx to avoid movdqa
+        // gcc4.9 and 5.x waste a movdqa with _mm_unpackhi, https://gcc.gnu.org/bugzilla/show_bug.cgi?id=59511
+	// so use non-destructive pshufd even though we shouldn't need it.  Costs 1 extra byte
+	__m128i hi    = HILO64(a);
+	        hi    = _mm_cvtepi16_epi32(hi);
+  #endif
+#else   // SSE2, not used by default
+	// SSE2: 48B.  2 movdqa (punpck).
 	__m128i signs = _mm_srai_epi16(a,15);                  // sign of all elements
 	__m128i lo    = _mm_unpacklo_epi16(a,signs);           // sign-extended a0, a1, a2, a3
-#endif
 	__m128i hi    = _mm_unpackhi_epi16(a,signs);           // sign-extended a4, a5, a6, a7
-	__m128i sum1  = _mm_add_epi32(lo,hi);		   // add
+#endif
+
+	__m128i sum1  = _mm_add_epi32(lo,hi);		   // add sign-extended upper / lower halves
 	return horizontal_add(Vec4i(sum1));
-    }else{
-	// Skylake and Jaguar: immediate shifts are 2 per clock, so the ILP disadvantage is gone
-	// SSE2/4: 46B.  1 movdqa.   AVX: 41B
+    }else{  // odd/even: default for SSE2
+	// SSE2/4: 1 movdqa: 46B.   AVX: 41B
+	// Jaguar: shuffles and immediate-shifts are both 2 per clock, no ILP advantage either way
+	// Skylake: immediate shifts are 2 per clock, shuffles are 1 per clock
 	__m128i aodd  = _mm_srai_epi32(a,16);                  // sign extend odd  numbered elements.  Putting this first makes gcc and clang put the movdqa in this dep chain
 	__m128i aeven = _mm_slli_epi32(a,16);                  // even numbered elements of a. get sign bit in position
 	        aeven = _mm_srai_epi32(aeven,16);              // sign extend even numbered elements
