@@ -3273,33 +3273,74 @@ static inline int64_t extract_lowi64(__m128i const & a) {
  *
  ****************************************************************************
  *
+ * Goals: minimize uops / latency / code-size, and maximize throughput, in that order.
+ * This is good for the usual case of an hsum outside a loop.
+ * On CPUs with no uop-cache, minimizing code over uops might make more sense.
+ * Micro-optimize other cases for specific target microarchitectures according to port pressure
+ * (e.g. use movshdup / movhlps on CPUs where that doesn't cause a bypass delay)
+ *
+ * Some compilers (clang) use their own choice of shuffle instructions anyway,
+ * but we try to work around cases where it makes bad choices.
+ *
  * SSSE3 hadd saves code-size, not speed.  It's 3 uops even on Skylake, and similarly inefficient on other CPUs
  * Worse, on the first CPUs to support it (Pentium M and Merom), it's VERY slow (like other sub-64bit shuffles)
  * See http://stackoverflow.com/a/35270026/224132
  *
-
  * On SLOW_SHUFFLE CPUs like Merom, it's still worth using pshufd instead of movdqa + punpckhqdq:
  * uops/m-ops for punpckhqdq + movdqa  >=   uops/mops for pshufd (Merom:2, P-M/K8: 3)
  *
- * On some CPUs, FP shuffles on integer data don't cause bypass delays,
- * so movhlps and movshdup would be useful.  Use movshdup first, because it's a copy-and-shuffle
- * Just changing these macros won't do that.
- *
- * Some compilers (clang) use their own choice of shuffle instructions anyway.
+ * AVX2 alternative for _x versions:  vpmovsx/xz ymm + vextracti128
+ * would save 1 uop on SnB-family but have worse significantly worse latency:
+ * 6 cycles vs. 2 to set up for the first vertical add (vs. vpmovsx xmm and vpsraw+vpunpckh)
+ * That's bad enough worse to not use it.  It would also need a vzeroupper
+ * and maybe be even slower during the CPU's upper128 warmup period
  */
 
-// Choose shuffles with the smallest encodings.
+/* Vec8s:
+    // consider scalar for last add, but maybe only if BMI2 rorx (non-destructive immediate shift) is available
+    // or if the compiler can use shld to get the high16 into another integer reg with one instruction
+    // Some use-cases will store directly to memory, and xmm->mem directly is good (esp. on AMD)
+  #if SCALAR_TAIL
+    int     low2 = _mm_cvtsi128_si32(sum4);
+    int     shuf = low2 >> 16;
+    int16_t sum_trunc = (int16_t)low2 + (int16_t)shuf;
+    return  sum_trunc;
+ // g++5.2
+ //  59:   66 0f 7e c2             movd   edx,xmm0
+ //  5d:   66 0f 7e c0             movd   eax,xmm0
+ //  61:   c1 fa 10                sar    edx,0x10
+ //  64:   01 d0                   add    eax,edx
+ //  66:   98                      cwde   
+  #else
+  // 59:   f2 0f 70 c8 e5          pshuflw xmm1,xmm0,0xe5
+  // 5e:   66 0f fd c1             paddw  xmm0,xmm1
+  // 62:   66 0f 7e c0             movd   eax,xmm0
+  // 66:   98                      cwde   
+  #endif
+*/
+
+
+// Choose different shuffles when using AVX non-destructive encoding is in use
+// Unlike float, overflow / underflow in unused temporary results can't hurt us, so the choice is arbitrary
 #if defined(__AVX__)
     // Saves the immediate byte with AVX, but no longer works as a load-and-shuffle
   #define HILO64(a)  _mm_unpackhi_epi64((a), (a))
-#else
-    // favor non-destructive instructions to save moves
-    // duplicate the upper64, in case that helps a compiler optimize it into something else
-  #define HILO64(a)  _mm_shuffle_epi32((a), 0xEE)    // _MM_SHUFFLE(3, 2, 3, 2)
+  // shift port pressure may be lower than shuffle:
+  // add and shift don't share ports on Intel SnB-family.
+  // SKL (and AMD Jag) can run 2 shifts per clock.
+  // SnB/IvB can do 2 integer shuffles per clock, but only 1 shift.  (Only helps for multiple hsums in parallel, though)
+  #define HILO32(a)  _mm_srli_epi64((a), 32)
+  #define HILO16(a)  _mm_srli_epi32((a), 16)
+#else // destructive-destination SSE encodings: use copy-and-shuffle insns
+    // 0xEE to duplicate the upper64 gives compilers more options, but that's a BAD thing for now:
+    // clang3.5 sometimes uses movdqa + movhlps, so this actually makes really bad code (esp. for Nehalem)
+    // So instead, swap lo and hi  to defeat clang's unwise shuffle-optimizer
+  #define HILO64(a)  _mm_shuffle_epi32((a), 0x4E)    // _MM_SHUFFLE(1, 0, 3, 2)
+  // purposely avoid a pattern that would let clang de-optimize to pshufd (pshuflw is always at least as fast)
+  #define HILO32(a) _mm_shufflelo_epi16((a), 0x0E)            // on some CPUs: movshdup would be good.
+  #define HILO16(a) _mm_shufflelo_epi16((a), 0b11100101)      // bits 15:0 = bits 31:16, other stay the same
 #endif
 
-#define HILO32(a) _mm_shufflelo_epi16((a), 0xEE)            // on some CPUs: movshdup would be good.
-#define HILO16(a) _mm_shufflelo_epi16((a), 0b11100101)      // bits 15:0 = bits 31:16, other stay the same
 //#define  HILO8(a)  _mm_srli_epi16((a), 8);         // not needed
 
 // XOP haddq and psadbw leave results in the low 16 or 32 of each 64bit half
@@ -3356,7 +3397,6 @@ static inline int64_t horizontal_add_x (Vec4i const & a) {
     // 64bit arithmetic right shift (like for narrower types) would probably be better, if it existed
     __m128i signs = _mm_srai_epi32(a,31);                  // sign of all elements
 #if INSTRSET >= 5     // SSE4.1 saves a movdqa, and pmovsx can run in parallel with psrad
-                       // AVX2 alternative: vpmovsxdq ymm + vextracti128 would save a uop but have worse latency
     __m128i a01   = _mm_cvtepi32_epi64(a);                 // sign-extended a0, a1
 #else
     __m128i a01   = _mm_unpacklo_epi32(a,signs);           // sign-extended a0, a1
@@ -3434,7 +3474,6 @@ static inline int32_t horizontal_add (Vec8s const & a) {
     __m128i sum2  = _mm_add_epi16(a,sum1);                 // 4 sums
     __m128i sum3  = HILO32(sum2);
     __m128i sum4  = _mm_add_epi16(sum2,sum3);              // 2 sums
-    // consider scalar for the rest of this, but maybe only if BMI2 rorx (non-destructive immediate shift) is available
     __m128i sum5  = HILO16(sum4);
     __m128i sum6  = _mm_add_epi16(sum4,sum5);              // 1 sum
     int16_t sum7  = _mm_cvtsi128_si32(sum6);               // 16 bit sum
