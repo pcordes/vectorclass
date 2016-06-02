@@ -3260,7 +3260,7 @@ static inline int64_t extract_lowi64(__m128i const & a) {
     union {
         __m128i x;  // silly definition of _mm_storel_epi64 requires __m128i
         int64_t i;
-    };
+    } u;
     _mm_storel_epi64(&u.x, a);
     return u.i;
 }
