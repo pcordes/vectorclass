@@ -3271,16 +3271,47 @@ static inline int64_t extract_lowi64(__m128i const & a) {
  *
  *         Horizontal sums
  *
- ****************************************************************************/
+ ****************************************************************************
+ *
+ * SSSE3 hadd saves code-size, not speed.  It's 3 uops even on Skylake, and similarly inefficient on other CPUs
+ * Worse, on the first CPUs to support it (Pentium M and Merom), it's VERY slow (like other sub-64bit shuffles)
+ * See http://stackoverflow.com/a/35270026/224132
+ *
+
+ * On SLOW_SHUFFLE CPUs like Merom, it's still worth using pshufd instead of movdqa + punpckhqdq:
+ * uops/m-ops for punpckhqdq + movdqa  >=   uops/mops for pshufd (Merom:2, P-M/K8: 3)
+ *
+ * On some CPUs, FP shuffles on integer data don't cause bypass delays,
+ * so movhlps and movshdup would be useful.  Use movshdup first, because it's a copy-and-shuffle
+ * Just changing these macros won't do that.
+ *
+ * Some compilers (clang) use their own choice of shuffle instructions anyway.
+ */
+
+// Choose shuffles with the smallest encodings.
+#if defined(__AVX__)
+    // Saves the immediate byte with AVX, but no longer works as a load-and-shuffle
+  #define HILO64(a)  _mm_unpackhi_epi64((a), (a))
+#else
+    // favor non-destructive instructions to save moves
+    // duplicate the upper64, in case that helps a compiler optimize it into something else
+  #define HILO64(a)  _mm_shuffle_epi32((a), 0xEE)    // _MM_SHUFFLE(3, 2, 3, 2)
+#endif
+
+#define HILO32(a) _mm_shufflelo_epi16((a), 0xEE)            // on some CPUs: movshdup would be good.
+#define HILO16(a) _mm_shufflelo_epi16((a), 0b11100101)      // bits 15:0 = bits 31:16, other stay the same
+//#define  HILO8(a)  _mm_srli_epi16((a), 8);         // not needed
+
+// XOP haddq and psadbw leave results in the low 16 or 32 of each 64bit half
+// We use HILO64 because it's still the most efficient way.
+
+
+
 
 // Horizontal add: Calculates the sum of all vector elements.
 // Overflow will wrap around
 static inline int64_t horizontal_add (Vec2q const & a) {
-#if defined(__AVX__)        // || defined(SLOW_SHUFFLE) punpckhqdq is 2 uops or m-ops + 1 for movdqa, vs. 3 for pshufd
-    __m128i shuf  = _mm_unpackhi_epi64(a, a);             // Saves the immediate byte with AVX, but no longer works as a load-and-shuffle
-#else
-    __m128i shuf  = _mm_shuffle_epi32(a,0xEE);            // saves a mov.  Compilers can always choose a different shuffle
-#endif
+    __m128i shuf  = HILO64(a);
     __m128i sum2  = _mm_add_epi64(a, shuf);               // sum
     // pextrq + movq + scalar add is also an option in 64bit mode, but PEXTRQ is 2 uops on its own
     return extract_lowi64(sum2);
@@ -3301,17 +3332,13 @@ static inline uint64_t horizontal_add (Vec2uq const & a) {
 static inline int32_t horizontal_add (Vec4i const & a) {
 #ifdef __XOP__       // AMD XOP instruction set
     __m128i sum1  = _mm_haddq_epi32(a);
-    __m128i sum2  = _mm_shuffle_epi32(sum1,0x0E);          // high element
+    __m128i sum2  = HILO64(sum1);
     __m128i sum3  = _mm_add_epi32(sum1,sum2);              // sum
     return          _mm_cvtsi128_si32(sum3);               // truncate to 32 bits
-#elif  INSTRSET >= 4  // SSSE3
-    __m128i sum1  = _mm_hadd_epi32(a,a);                   // horizontally add 4 elements in 2 steps
-    __m128i sum2  = _mm_hadd_epi32(sum1,sum1);
-    return          _mm_cvtsi128_si32(sum2);               // 32 bit sum
 #else                 // SSE2
-    __m128i sum1  = _mm_shuffle_epi32(a,0x0E);             // 2 high elements
+    __m128i sum1  = HILO64(a);
     __m128i sum2  = _mm_add_epi32(a,sum1);                 // 2 sums
-    __m128i sum3  = _mm_shuffle_epi32(sum2,0x01);          // 1 high element
+    __m128i sum3  = HILO32(sum2);
     __m128i sum4  = _mm_add_epi32(sum2,sum3);              // 2 sums
     return          _mm_cvtsi128_si32(sum4);               // 32 bit sum
 #endif
@@ -3364,22 +3391,17 @@ static inline uint64_t horizontal_add_x (Vec4ui const & a) {
 static inline int32_t horizontal_add (Vec8s const & a) {
 #ifdef __XOP__       // AMD XOP instruction set
     __m128i sum1  = _mm_haddq_epi16(a);
-    __m128i sum2  = _mm_shuffle_epi32(sum1,0x0E);          // high element
+    __m128i sum2  = HILO64(sum1);
     __m128i sum3  = _mm_add_epi32(sum1,sum2);              // sum
     int16_t sum4  = _mm_cvtsi128_si32(sum3);               // truncate to 16 bits
     return  sum4;                                          // sign extend to 32 bits
-#elif  INSTRSET >= 4  // SSSE3
-    __m128i sum1  = _mm_hadd_epi16(a,a);                   // horizontally add 8 elements in 3 steps
-    __m128i sum2  = _mm_hadd_epi16(sum1,sum1);
-    __m128i sum3  = _mm_hadd_epi16(sum2,sum2);
-    int16_t sum4  = (int16_t)_mm_cvtsi128_si32(sum3);      // 16 bit sum
-    return  sum4;                                          // sign extend to 32 bits
-#else                 // SSE2
-    __m128i sum1  = _mm_shuffle_epi32(a,0x0E);             // 4 high elements
+#else
+    __m128i sum1  = HILO64(a);
     __m128i sum2  = _mm_add_epi16(a,sum1);                 // 4 sums
-    __m128i sum3  = _mm_shuffle_epi32(sum2,0x01);          // 2 high elements
+    __m128i sum3  = HILO32(sum2);
     __m128i sum4  = _mm_add_epi16(sum2,sum3);              // 2 sums
-    __m128i sum5  = _mm_shufflelo_epi16(sum4,0x01);        // 1 high element
+    // consider scalar for the rest of this, but maybe only if BMI2 rorx (non-destructive immediate shift) is available
+    __m128i sum5  = HILO16(sum4);
     __m128i sum6  = _mm_add_epi16(sum4,sum5);              // 1 sum
     int16_t sum7  = _mm_cvtsi128_si32(sum6);               // 16 bit sum
     return  sum7;                                          // sign extend to 32 bits
@@ -3408,7 +3430,7 @@ static inline int32_t horizontal_add_x (Vec8s const & a) {
 static inline uint32_t horizontal_add (Vec8us const & a) {
 #ifdef __XOP__     // AMD XOP instruction set
     __m128i sum1  = _mm_haddq_epu16(a);
-    __m128i sum2  = _mm_shuffle_epi32(sum1,0x0E);          // high element
+    __m128i sum2  = HILO64(sum1);
     __m128i sum3  = _mm_add_epi32(sum1,sum2);              // sum
     uint16_t sum4 = _mm_cvtsi128_si32(sum3);               // truncate to 16 bits
     return  sum4;                                          // zero extend to 32 bits
@@ -3423,7 +3445,7 @@ static inline uint32_t horizontal_add (Vec8us const & a) {
 static inline uint32_t horizontal_add_x (Vec8us const & a) {
 #ifdef __XOP__     // AMD XOP instruction set
     __m128i sum1  = _mm_haddq_epu16(a);
-    __m128i sum2  = _mm_shuffle_epi32(sum1,0x0E);          // high element
+    __m128i sum2  = HILO64(sum1);
     __m128i sum3  = _mm_add_epi32(sum1,sum2);              // sum
     return          _mm_cvtsi128_si32(sum3);
 #else
@@ -3441,8 +3463,12 @@ static inline uint32_t horizontal_add_x (Vec8us const & a) {
 // Horizontal add extended: Calculates the sum of all vector elements.
 // Each element is zero-extended before addition to avoid overflow
 static inline uint32_t horizontal_add_x (Vec16uc const & a) {
+#ifdef __XOP__
+    __m128i sum1  = _mm_haddq_epu8(a);         // doesn't need a zeroed register
+#else
     __m128i sum1 = _mm_sad_epu8(a,_mm_setzero_si128());
-    __m128i sum2 = _mm_shuffle_epi32(sum1,2);
+#endif
+    __m128i sum2 = HILO64(sum1);
     __m128i sum3 = _mm_add_epi16(sum1,sum2);
     return _mm_cvtsi128_si32(sum3);
 }
@@ -3466,7 +3492,7 @@ static inline int32_t horizontal_add (Vec16c const & a) {
 static inline int32_t horizontal_add_x (Vec16c const & a) {
 #ifdef __XOP__       // AMD XOP instruction set
     __m128i sum1  = _mm_haddq_epi8(a);
-    __m128i sum2  = _mm_shuffle_epi32(sum1,0x0E);          // high element
+    __m128i sum2  = HILO64(sum1);
     __m128i sum3  = _mm_add_epi32(sum1,sum2);              // sum
     return          _mm_cvtsi128_si32(sum3);
 #else
@@ -3480,6 +3506,9 @@ static inline int32_t horizontal_add_x (Vec16c const & a) {
 #endif
 }
 
+#undef HILO64
+#undef HILO32
+#undef HILO16
 
 
 /*****************************************************************************
