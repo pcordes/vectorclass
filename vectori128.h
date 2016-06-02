@@ -3377,18 +3377,44 @@ static inline uint32_t horizontal_add (Vec4ui const & a) {
 
 // Horizontal add extended: Calculates the sum of all vector elements.
 // Elements are zero extended before adding to avoid overflow
-static inline uint64_t horizontal_add_x (Vec4ui const & a) {
+static inline uint64_t horizontal_add_x (Vec4ui const & a, bool use_oddeven = false) {
 #ifdef __XOP__     // AMD XOP instruction set
     __m128i sum1  = _mm_haddq_epu32(a);
-#else              // SSE2
-    // 64bit logical shifts are available.  TODO: compare pxor/unpack with shift/AND
-    // also consider clang's output for _mm_and:  pblendw imm8  (fast on all CPUs that support it)
-    __m128i zero  = _mm_setzero_si128();                   // 0
-    __m128i a01   = _mm_unpacklo_epi32(a,zero);            // zero-extended a0, a1
-    __m128i a23   = _mm_unpackhi_epi32(a,zero);            // zero-extended a2, a3
-    __m128i sum1  = _mm_add_epi64(a01,a23);                // add
-#endif
     return horizontal_add (Vec2uq (sum1));
+#else
+
+    /* 4 possible strategies:
+     * SSE2 pxor/punpck: 1 extra movdqa when zero is hoisted
+     * SSE2 psrl/pand: 1 extra movdqa when constant is hoisted.  Needs a non-zero constant
+     * pxor/punpck/pmovzx: SSE4.1: 0 extra movqda.
+     * pxor/pblend/psrl: SSE4.1: 1 extra movdqa when pxor is hoisted.  (0 extra when it's not: can blend into it)
+     */
+    if (use_oddeven){
+	// odd-even shift/mask strategy
+#if INSTRSET >= 5     // SSE4.1 pblendw doesn't need a mask
+	__m128i zero  = _mm_setzero_si128();
+	__m128i aeven = _mm_blend_epi16(zero, a, 0b00110011);  // even numbered elements of a
+#else
+	__m128i mask  = _mm_set1_epi64x(0x00000000FFFFFFFF);   // mask for even positions
+	__m128i aeven = _mm_and_si128(a,mask);                 // even numbered elements of a
+#endif
+	__m128i aodd  = _mm_srli_epi64(a,32);                  // zero extend odd numbered elements
+	__m128i sum1  = _mm_add_epi64(aeven,aodd);             // add even and odd elements
+	return horizontal_add (Vec2uq (sum1));
+    } else {
+	// zero-extend strategy
+	__m128i zero  = _mm_setzero_si128();
+#if (INSTRSET >= 5) && !defined(__AVX__)     // SSE4.1 pmovzx saves a movdqa, but wastes a byte with AVX
+	__m128i a01   = _mm_cvtepu32_epi64(a);                 // zero-extended a0, a1
+#else
+	__m128i a01   = _mm_unpacklo_epi32(a,zero);            // zero-extended a0, a1
+#endif
+	__m128i a23   = _mm_unpackhi_epi32(a,zero);            // zero-extended a2, a3
+	__m128i sum1  = _mm_add_epi64(a01,a23);                // add
+	return horizontal_add (Vec2uq (sum1));
+    }
+
+#endif  // __XOP__
 }
 
 
