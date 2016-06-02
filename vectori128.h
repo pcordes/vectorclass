@@ -3350,7 +3350,9 @@ static inline int32_t horizontal_add (Vec4i const & a) {
 static inline int64_t horizontal_add_x (Vec4i const & a) {
 #ifdef __XOP__     // AMD XOP instruction set
     __m128i sum1  = _mm_haddq_epi32(a);
-#else              // SSE2
+    return horizontal_add (Vec2q (sum1));
+#else
+
     // 64bit arithmetic right shift (like for narrower types) would probably be better, if it existed
     __m128i signs = _mm_srai_epi32(a,31);                  // sign of all elements
 #if INSTRSET >= 5     // SSE4.1 saves a movdqa, and pmovsx can run in parallel with psrad
@@ -3361,8 +3363,9 @@ static inline int64_t horizontal_add_x (Vec4i const & a) {
 #endif
     __m128i a23   = _mm_unpackhi_epi32(a,signs);           // sign-extended a2, a3
     __m128i sum1  = _mm_add_epi64(a01,a23);                // add
-#endif
     return horizontal_add (Vec2q (sum1));
+
+#endif	// __XOP__
 }
 
 
@@ -3454,6 +3457,9 @@ static inline uint32_t horizontal_add_x (Vec8us const & a) {
     __m128i sum3  = _mm_add_epi32(sum1,sum2);              // sum
     return          _mm_cvtsi128_si32(sum3);
 #else
+    // same choice of strategies as horizontal_add_x (Vec4ui):
+    //  clang's output for _mm_and:  pblendw imm8  (fast on all CPUs that support it)
+    // punpackl/hwd with zero would also work
     __m128i mask  = _mm_set1_epi32(0x0000FFFF);            // mask for even positions
     __m128i aeven = _mm_and_si128(a,mask);                 // even numbered elements of a
     __m128i aodd  = _mm_srli_epi32(a,16);                  // zero extend odd numbered elements
