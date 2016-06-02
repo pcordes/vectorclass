@@ -3444,19 +3444,38 @@ static inline int32_t horizontal_add (Vec8s const & a) {
 
 // Horizontal add extended: Calculates the sum of all vector elements.
 // Elements are sign extended before adding to avoid overflow
-static inline int32_t horizontal_add_x (Vec8s const & a) {
+static inline int32_t horizontal_add_x (Vec8s const & a, bool use_extend = (INSTRSET>=5)) {
 #ifdef __XOP__       // AMD XOP instruction set
     __m128i sum1  = _mm_haddq_epi16(a);
     __m128i sum2  = _mm_shuffle_epi32(sum1,0x0E);          // high element
     __m128i sum3  = _mm_add_epi32(sum1,sum2);              // sum
     return          _mm_cvtsi128_si32(sum3);
 #else
-    __m128i aeven = _mm_slli_epi32(a,16);                  // even numbered elements of a. get sign bit in position
-            aeven = _mm_srai_epi32(aeven,16);              // sign extend even numbered elements
-    __m128i aodd  = _mm_srai_epi32(a,16);                  // sign extend odd  numbered elements
-    __m128i sum1  = _mm_add_epi32(aeven,aodd);             // add even and odd elements
-    return horizontal_add(Vec4i(sum1));
+    if(use_extend){
+#if INSTRSET >= 5 // SSE4.1
+	// AVX2 alternative: vpmovsxwd ymm + vextracti128 would save a uop but have worse latency
+	// 1 movdqa (pmovsx), with more ILP (shift and shuffle can run in parallel on Intel)
+	// SSE4.1: 45B. AVX: 40B.    Bulldozer: pmovsx, punpck, and shifts all compete for P1 :/
+	__m128i lo    = _mm_cvtepi16_epi32(a);                 // sign-extended a0, a1, a2, a3
+	__m128i signs = _mm_srai_epi16(a,15);                  // sign of all elements
+#else
+	// SSE2: 48B.  2 movdqa (punpck).  Not worth using vs. shifts, hence the default
+	__m128i signs = _mm_srai_epi16(a,15);                  // sign of all elements
+	__m128i lo    = _mm_unpacklo_epi16(a,signs);           // sign-extended a0, a1, a2, a3
 #endif
+	__m128i hi    = _mm_unpackhi_epi16(a,signs);           // sign-extended a4, a5, a6, a7
+	__m128i sum1  = _mm_add_epi32(lo,hi);		   // add
+	return horizontal_add(Vec4i(sum1));
+    }else{
+	// Skylake and Jaguar: immediate shifts are 2 per clock, so the ILP disadvantage is gone
+	// SSE2/4: 46B.  1 movdqa.   AVX: 41B
+	__m128i aodd  = _mm_srai_epi32(a,16);                  // sign extend odd  numbered elements.  Putting this first makes gcc and clang put the movdqa in this dep chain
+	__m128i aeven = _mm_slli_epi32(a,16);                  // even numbered elements of a. get sign bit in position
+	        aeven = _mm_srai_epi32(aeven,16);              // sign extend even numbered elements
+	__m128i sum1  = _mm_add_epi32(aeven,aodd);             // add even and odd elements
+	return horizontal_add(Vec4i(sum1));
+    }
+#endif // __XOP__
 }
 
 // Horizontal add: Calculates the sum of all vector elements.
@@ -3483,7 +3502,7 @@ static inline uint32_t horizontal_add_x (Vec8us const & a) {
     __m128i sum3  = _mm_add_epi32(sum1,sum2);              // sum
     return          _mm_cvtsi128_si32(sum3);
 #else
-    // same choice of strategies as horizontal_add_x (Vec4ui):
+    // TODO: same choice of strategies as horizontal_add_x (Vec4ui):
     //  clang's output for _mm_and:  pblendw imm8  (fast on all CPUs that support it)
     // punpackl/hwd with zero would also work
     __m128i mask  = _mm_set1_epi32(0x0000FFFF);            // mask for even positions
@@ -3533,6 +3552,7 @@ static inline int32_t horizontal_add_x (Vec16c const & a) {
     __m128i sum3  = _mm_add_epi32(sum1,sum2);              // sum
     return          _mm_cvtsi128_si32(sum3);
 #else
+    // TODO: check which order makes better code
     __m128i aeven = _mm_slli_epi16(a,8);                   // even numbered elements of a. get sign bit in position
             aeven = _mm_srai_epi16(aeven,8);               // sign extend even numbered elements
     __m128i aodd  = _mm_srai_epi16(a,8);                   // sign extend odd  numbered elements
