@@ -3353,7 +3353,12 @@ static inline int64_t horizontal_add_x (Vec4i const & a) {
 #else              // SSE2
     // 64bit arithmetic right shift (like for narrower types) would probably be better, if it existed
     __m128i signs = _mm_srai_epi32(a,31);                  // sign of all elements
+#if INSTRSET >= 5     // SSE4.1 saves a movdqa, and pmovsx can run in parallel with psrad
+                       // AVX2 alternative: vpmovsxdq ymm + vextracti128 would save a uop but have worse latency
+    __m128i a01   = _mm_cvtepi32_epi64(a);                 // sign-extended a0, a1
+#else
     __m128i a01   = _mm_unpacklo_epi32(a,signs);           // sign-extended a0, a1
+#endif
     __m128i a23   = _mm_unpackhi_epi32(a,signs);           // sign-extended a2, a3
     __m128i sum1  = _mm_add_epi64(a01,a23);                // add
 #endif
