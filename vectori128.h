@@ -3544,24 +3544,25 @@ static inline int32_t horizontal_add (Vec16c const & a) {
 
 // Horizontal add extended: Calculates the sum of all vector elements.
 // Each element is sign-extended before addition to avoid overflow
-// TODO: does it work to range-shift to unsigned, then shift back?
 static inline int32_t horizontal_add_x (Vec16c const & a) {
 #ifdef __XOP__       // AMD XOP instruction set
     __m128i sum1  = _mm_haddq_epi8(a);
     __m128i sum2  = HILO64(sum1);
     __m128i sum3  = _mm_add_epi32(sum1,sum2);              // sum
     return          _mm_cvtsi128_si32(sum3);
-#else
-    // TODO: check which order makes better code
-    __m128i aeven = _mm_slli_epi16(a,8);                   // even numbered elements of a. get sign bit in position
-            aeven = _mm_srai_epi16(aeven,8);               // sign extend even numbered elements
-    __m128i aodd  = _mm_srai_epi16(a,8);                   // sign extend odd  numbered elements
-    __m128i sum1  = _mm_add_epi16(aeven,aodd);             // add even and odd elements
-
-    int16_t sum_trunc = horizontal_add(Vec8s(sum1));       // 16 bit sum
-    return sum_trunc;                                      // sign extend to 32 bits
+#else  // SSE2: range-shift to unsigned, use psadbw (like for unsigned), then subtract the bias
+    __m128i rangeshifted = _mm_xor_si128(a, _mm_set1_epi8(0x80));
+    __m128i sum1 = _mm_sad_epu8(rangeshifted,_mm_setzero_si128());
+    __m128i sum2 = HILO64(sum1);
+    // could shorten the critical path by subtracting 0x80*16 in parallel with this shuffle
+    __m128i sum3 = _mm_add_epi16(sum1,sum2);
+    int16_t sum_trunc = _mm_cvtsi128_si32(sum3);
+    return sum_trunc - 0x80 * 16; // sign extend to 32 bits
 #endif
 }
+
+
+
 
 #undef HILO64
 #undef HILO32
