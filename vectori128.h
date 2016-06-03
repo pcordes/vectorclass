@@ -3287,7 +3287,8 @@ static inline int64_t extract_lowi64(__m128i const & a) {
  * See http://stackoverflow.com/a/35270026/224132
  *
  * On SLOW_SHUFFLE CPUs like Merom, it's still worth using pshufd instead of movdqa + punpckhqdq:
- * uops/m-ops for punpckhqdq + movdqa  >=   uops/mops for pshufd (Merom:2, P-M/K8: 3)
+ * uops/m-ops for punpckhqdq + movdqa  >=  uops/mops for pshufd (Merom:2, P-M/K8: 3)
+ * On Jaguar, pshuflw (and shifts) have latency=1c, vs. pshufd (2c).  All are 1 m-op.
  *
  * AVX2 alternative for _x versions:  vpmovsx/xz ymm + vextracti128
  * would save 1 uop on SnB-family but have worse significantly worse latency:
@@ -3583,10 +3584,26 @@ static inline uint32_t horizontal_add_x (Vec16uc const & a) {
 #else
     __m128i sum1 = _mm_sad_epu8(a,_mm_setzero_si128());
 #endif
+    // shuf + paddw + movd = 3 uops, but larger code-size
     __m128i sum2 = HILO64(sum1);
     __m128i sum3 = _mm_add_epi16(sum1,sum2);
     return _mm_cvtsi128_si32(sum3);
 }
+    /*  // pextrw + movd + add = 4 uops (saves 2 code bytes, though).
+	// Jaguar has cheap pextrw (1 m-op).  K8 & Bobcat have pextrw cheaper than pshufd, so it's a win there
+        // Silvermont has very bad throughput for pextrw (1 per 4, instead of 1 per 1 for movd), but it's still 2 uops
+    uint32_t hi  = _mm_extract_epi16(sum1, 4);
+    uint32_t lo  = _mm_cvtsi128_si32(sum1);
+    return hi + lo;
+ 158:   66 0f 70 c8 4e          pshufd xmm1,xmm0,0x4e
+ 15d:   66 0f fd c1             paddw  xmm0,xmm1
+ 161:   66 0f 7e c0             movd   eax,xmm0
+vs.
+ 158:   66 0f 7e c2             movd   edx,xmm0
+ 15c:   66 0f c5 c0 04          pextrw eax,xmm0,0x4
+ 161:   01 d0                   add    eax,edx
+    */
+
 
 // Horizontal add: Calculates the sum of all vector elements.
 // Overflow will wrap around   // FIXME: really? we only truncate to 16 bits
@@ -3620,6 +3637,22 @@ static inline int32_t horizontal_add_x (Vec16c const & a) {
 #endif
 }
 
+// movd + pextrw + lea *does* have an advantage over pshufd + paddw + movd + sub imm32
+static inline int32_t horizontal_add_xscalar (Vec16c const & a) {
+#ifdef __XOP__       // AMD XOP instruction set
+    __m128i sum1  = _mm_haddq_epi8(a);
+    __m128i sum2  = HILO64(sum1);
+    __m128i sum3  = _mm_add_epi32(sum1,sum2);              // sum
+    return          _mm_cvtsi128_si32(sum3);
+#else  // SSE2: range-shift to unsigned, use psadbw (like for unsigned), then subtract the bias
+    __m128i rangeshifted = _mm_xor_si128(a, _mm_set1_epi8(0x80));
+    __m128i sad = _mm_sad_epu8(rangeshifted,_mm_setzero_si128());
+    int16_t hi  = _mm_extract_epi16(sad, 4);
+    int16_t lo  = _mm_cvtsi128_si32(sad);        // lo+hi is in [0..16*0xFF].
+    int16_t sum_trunc = hi + lo - 0x80 * 16;     // undo the bias and truncate to 16 bits. can't overflow (undefined behaviour)
+    return sum_trunc;                            // sign extend to 32 bits
+#endif
+}
 
 
 
