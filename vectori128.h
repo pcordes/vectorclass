@@ -3627,13 +3627,19 @@ static inline int32_t horizontal_add_x (Vec16c const & a) {
     __m128i sum3  = _mm_add_epi32(sum1,sum2);              // sum
     return          _mm_cvtsi128_si32(sum3);
 #else  // SSE2: range-shift to unsigned, use psadbw (like for unsigned), then subtract the bias
-    __m128i rangeshifted = _mm_xor_si128(a, _mm_set1_epi8(0x80));
+    __m128i signed_to_unsigned = _mm_set1_epi8(0x80);
+    __m128i rangeshifted = _mm_xor_si128(a, signed_to_unsigned);
     __m128i sum1 = _mm_sad_epu8(rangeshifted,_mm_setzero_si128());
-    __m128i sum2 = HILO64(sum1);
-    // could shorten the critical path by subtracting 0x80*16 in parallel with this shuffle
-    __m128i sum3 = _mm_add_epi16(sum1,sum2);
+    __m128i sadhi = HILO64(sum1);
+          //  shorten the critical path by subtracting 0x80*16 in parallel with this shuffle
+    // __m128i bias = _mm_slli_epi16(signed_to_unsigned, 4);  // low16 element = 0x80 * 16 // compilers suck and won't reuse the same constant
+    __m128i bias = _mm_set_epi32(0,0,0,0x80*16);  // clang turns this into  mov reg,imm32 / movd.
+    __m128i sadlo_minus_bias = _mm_sub_epi16(sum1, bias); // ILP with HILO64
+
+    __m128i sum3 = _mm_add_epi16(sadlo_minus_bias, sadhi);
     int16_t sum_trunc = _mm_cvtsi128_si32(sum3);
-    return sum_trunc - 0x80 * 16; // sign extend to 32 bits
+    return sum_trunc;   // sign extend to 32 bits
+//    return sum_trunc - 0x80 * 16; // sign extend to 32 bits
 #endif
 }
 
