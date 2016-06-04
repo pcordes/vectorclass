@@ -1016,7 +1016,7 @@ static inline uint32_t horizontal_add (Vec32uc const & a) {
 // SIGNED
 // Horizontal add: Calculates the sum of all vector elements.
 // Overflow will wrap around
-static inline uint32_t horizontal_add (Vec32c const & a) {
+static inline int32_t horizontal_add (Vec32c const & a) {
     // Use the efficient SAD epu8 hsum.
     // When used on signed integers, it introduces wraparound that only makes sense if truncated to 8bit
     uint32_t unsigned_hsum = horizontal_add_x(Vec32uc(a));
@@ -3140,16 +3140,16 @@ static inline uint64_t horizontal_add (Vec4uq const & a) {
 // Elements are sign/zero extended before adding to avoid overflow
 static inline int64_t horizontal_add_x (Vec8i const & a) {
     __m256i signs = _mm256_srai_epi32(a,31);                          // sign of all elements
-    Vec4q   a01   = _mm256_unpacklo_epi32(a,signs);                   // sign-extended a0, a1, a4, a5
-    Vec4q   a23   = _mm256_unpackhi_epi32(a,signs);                   // sign-extended a2, a3, a6, a7
-    return  horizontal_add(a01 + a23);
+    Vec4q   lo    = _mm256_unpacklo_epi32(a,signs);                   // sign-extended a0, a1, a4, a5
+    Vec4q   hi    = _mm256_unpackhi_epi32(a,signs);                   // sign-extended a2, a3, a6, a7
+    return  horizontal_add(lo + hi);
 }
 
 static inline uint64_t horizontal_add_x (Vec8ui const & a) {
     __m256i zero  = _mm256_setzero_si256();                           // 0
-    __m256i a01   = _mm256_unpacklo_epi32(a,zero);                    // zero-extended a0, a1
-    __m256i a23   = _mm256_unpackhi_epi32(a,zero);                    // zero-extended a2, a3
-    return horizontal_add(Vec4q(a01) + Vec4q(a23));
+    Vec4uq  lo    = _mm256_unpacklo_epi32(a,zero);                    // zero-extended a0, a1, a4, a5
+    Vec4uq  hi    = _mm256_unpackhi_epi32(a,zero);                    // zero-extended a2, a3, a6, a7
+    return  horizontal_add(lo + hi);
 }
 
 // function max: a > b ? a : b
