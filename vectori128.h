@@ -234,6 +234,7 @@ static inline __m128i constant4i() {
 // The implementation depends on the instruction set: 
 // If SSE4.1 is supported then only bit 7 in each byte of s is checked, 
 // otherwise all bits in s are used.
+// TODO: detect compile-time constant selector and use an immediate blend if possible?
 static inline __m128i selectb (__m128i const & s, __m128i const & a, __m128i const & b) {
 #if INSTRSET >= 5   // SSE4.1 supported
     return _mm_blendv_epi8 (b, a, s);
@@ -2823,7 +2824,10 @@ static inline Vec2q & operator -- (Vec2q & a) {
 }
 
 // vector operator * : multiply element by element
+// scalar may be more efficient if the inputs and outpus are already scalar
 static inline Vec2q operator * (Vec2q const & a, Vec2q const & b) {
+// TODO: AVX512DQ has an instruction for this
+// TODO: check gcc auto-vectorization results, maybe an SSE2 version
 #if INSTRSET >= 5   // SSE4.1 supported
     // instruction does not exist. Split into 32-bit multiplies
     __m128i bswap   = _mm_shuffle_epi32(b,0xB1);           // b0H,b0L,b1H,b1L (swap H<->L)
@@ -3162,7 +3166,7 @@ static inline Vec2qb operator > (Vec2uq const & a, Vec2uq const & b) {
     __m128i sign64 = constant4i<0,(int32_t)0x80000000,0,(int32_t)0x80000000>();
     __m128i aflip  = _mm_xor_si128(a, sign64);
     __m128i bflip  = _mm_xor_si128(b, sign64);
-    Vec2q   cmp    = _mm_cmpgt_epi64(aflip,bflip);
+    Vec2q   cmp    = _mm_cmpgt_epi64(aflip,bflip); // TODO: why not Vec2qb directly?
     return Vec2qb(cmp);
 #else  // SSE2 instruction set
     __m128i sign32  = _mm_set1_epi32(0x80000000);          // sign bit of each dword

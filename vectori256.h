@@ -606,6 +606,7 @@ static inline Vec32c operator * (Vec32c const & a, Vec32c const & b) {
             mulodd  = _mm256_slli_epi16(mulodd,8);            // put odd numbered elements back in place
     __m256i mask    = _mm256_set1_epi32(0x00FF00FF);          // mask for even positions
     __m256i product = selectb(mask,muleven,mulodd);           // interleave even and odd
+    // TODO: avoid bytewise variable-blend?
     return product;
 }
 
@@ -1742,6 +1743,7 @@ static inline uint32_t horizontal_add (Vec16us const & a) {
 // Horizontal add extended: Calculates the sum of all vector elements.
 // Each element is zero-extended before addition to avoid overflow
 static inline uint32_t horizontal_add_x (Vec16us const & a) {
+    // TODO: optimize
     __m256i mask  = _mm256_set1_epi32(0x0000FFFF);                    // mask for even positions
     __m256i aeven = _mm256_and_si256(a,mask);                         // even numbered elements of a
     __m256i aodd  = _mm256_srli_epi32(a,16);                          // zero extend odd numbered elements
@@ -3947,6 +3949,7 @@ static inline Vec4q blend4q(Vec4q const & a, Vec4q const & b) {
 
     // special case: blend without permute
     if (((m1 ^ 0x03020100) & 0xFBFBFBFB & mz) == 0) {
+	// TODO: vpblendd!!
         mask = constant8i <
             (i0 & 4) ? -1 : 0, (i0 & 4) ? -1 : 0, (i1 & 4) ? -1 : 0, (i1 & 4) ? -1 : 0, 
             (i2 & 4) ? -1 : 0, (i2 & 4) ? -1 : 0, (i3 & 4) ? -1 : 0, (i3 & 4) ? -1 : 0 > ();
@@ -4005,7 +4008,7 @@ static inline Vec4q blend4q(Vec4q const & a, Vec4q const & b) {
     mask = constant8i <
         (i0 & 4) ? -1 : 0, (i0 & 4) ? -1 : 0, (i1 & 4) ? -1 : 0, (i1 & 4) ? -1 : 0, 
         (i2 & 4) ? -1 : 0, (i2 & 4) ? -1 : 0, (i3 & 4) ? -1 : 0, (i3 & 4) ? -1 : 0 > ();
-
+    // TODO: vpblendd
     return _mm256_blendv_epi8(ta, tb, mask);  // blend
 }
 
@@ -4168,6 +4171,7 @@ static inline Vec16s blend16s(Vec16s const & a, Vec16s const & b) {
             int(((i12& 16) ? 0xFFFF : 0) | ((i13& 16) ? 0xFFFF0000 : 0)),
             int(((i14& 16) ? 0xFFFF : 0) | ((i15& 16) ? 0xFFFF0000 : 0)) > ();
 
+	// TODO: vpblendw
         t1 = _mm256_blendv_epi8(a, b, mask);  // blend
 
         if (mz != 0xFFFF) {
@@ -4264,6 +4268,7 @@ static inline Vec16s blend16s(Vec16s const & a, Vec16s const & b) {
         int(((i12& 16) ? 0xFFFF : 0) | ((i13& 16) ? 0xFFFF0000 : 0)),
         int(((i14& 16) ? 0xFFFF : 0) | ((i15& 16) ? 0xFFFF0000 : 0)) > ();
 
+    // TODO: vpblendw, or detect vpblendd opportunity
     return _mm256_blendv_epi8(ta, tb, mask);  // blend
 }
 
@@ -4329,6 +4334,7 @@ static inline Vec32c blend32c(Vec32c const & a, Vec32c const & b) {
             int(((i24<<2)&0x80) | ((i25<<10)&0x8000) | ((i26<<18)&0x800000) | (uint32_t(i27<<26)&0x80000000)) ,
             int(((i28<<2)&0x80) | ((i29<<10)&0x8000) | ((i30<<18)&0x800000) | (uint32_t(i31<<26)&0x80000000)) > ();
 
+	// TODO: detect cases where vpblendd or vpblendw would work
         t1 = _mm256_blendv_epi8(a, b, mask);  // blend
 
         if (mz != -1) {
@@ -4445,6 +4451,7 @@ static inline Vec32c blend32c(Vec32c const & a, Vec32c const & b) {
         int(((i24<<2)&0x80) | ((i25<<10)&0x8000) | ((i26<<18)&0x800000) | (uint32_t(i27<<26)&0x80000000)) ,
         int(((i28<<2)&0x80) | ((i29<<10)&0x8000) | ((i30<<18)&0x800000) | (uint32_t(i31<<26)&0x80000000)) > ();
 
+    // TODO: detect cases where vpblendd or vpblendw would work
     return _mm256_blendv_epi8(ta, tb, mask);  // blend
 }
 
