@@ -741,26 +741,15 @@ static inline Vec32c if_add (Vec32cb const & f, Vec32c const & a, Vec32c const &
 // Horizontal add extended: Calculates the sum of all vector elements.
 // Each element is sign-extended before addition to avoid overflow
 static inline int32_t horizontal_add_x (Vec32c const & a) {
-    __m256i aeven = _mm256_slli_epi16(a,8);                          // even numbered elements of a. get sign bit in position
-            aeven = _mm256_srai_epi16(aeven,8);                      // sign extend even numbered elements
-    __m256i aodd  = _mm256_srai_epi16(a,8);                          // sign extend odd  numbered elements
-    __m256i sum1  = _mm256_add_epi16(aeven,aodd);                    // add even and odd elements
-
-    __m128i shuf  = hi128i(sum1);                // wrapper for bug in MS VS 11
-    __m128i sum2  = _mm_add_epi16(shuf, lo128i(sum1));               // reduce to a 128b vector of signed16
-    return (int16_t)horizontal_add(Vec8s(sum2));                    // the non_x version is faster, and we know it can't overflow
-
-/*
-            shuf  = _mm_unpackhi_epi64(sum2,sum2);
-    __m128i sum3  = _mm_add_epi16(shuf, sum2);
-            shuf  = _mm_unpacklo_
-
-    __m256i sum2  = _mm256_hadd_epi16(sum1,sum1);                    // horizontally add 2x8 elements in 3 steps
-    __m256i sum3  = _mm256_hadd_epi16(sum2,sum2);
-    __m256i sum4  = _mm256_hadd_epi16(sum3,sum3);
-    int16_t sum7  = (int16_t)_mm_cvtsi128_si32(sum6);                // 16 bit sum
-    return  sum7;                                                    // sign extend to 32 bits
-*/
+    __m256i signed_to_unsigned = _mm256_set1_epi8(0x80);
+    __m256i rangeshifted = _mm256_xor_si256(a, signed_to_unsigned);
+    __m256i sum1 = _mm256_sad_epu8(rangeshifted,_mm256_setzero_si256());   // 4 16bit sums in 4 qwords
+    __m128i sum2 = hi128i(sum1);
+    __m128i sum3 = _mm_add_epi16(lo128i(sum1), sum2);
+    __m128i sum4 = _mm_unpackhi_epi64(sum3,sum3);
+    __m128i sum5 = _mm_add_epi16(sum3, sum4);
+    int16_t sum_trunc = _mm_cvtsi128_si32(sum5);
+    return sum_trunc - 0x80 * 32;            // sign extend to 32 bits
 }
 
 // function add_saturated: add element by element, signed with saturation
