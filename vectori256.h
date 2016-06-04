@@ -175,7 +175,7 @@ public:
         return _mm256_castsi256_si128(ymm);
     }
     Vec128b get_high() const {
-        return _mm256_extractf128_si256(ymm,1);
+        return hi128i(ymm);
     }
     static int size() {
         return 256;
@@ -881,7 +881,7 @@ public:
         return _mm256_castsi256_si128(ymm);
     }
     Vec16uc get_high() const {
-        return _mm256_extractf128_si256(ymm,1);
+        return hi128i(ymm);
     }
 };
 
@@ -998,16 +998,11 @@ static inline Vec32uc if_add (Vec32cb const & f, Vec32uc const & a, Vec32uc cons
 // Horizontal add extended: Calculates the sum of all vector elements.
 // Each element is zero-extended before addition to avoid overflow
 static inline uint32_t horizontal_add_x (Vec32uc const & a) {
-    __m256i sum1 = _mm256_sad_epu8(a,_mm256_setzero_si256());
-    __m256i sum2 = _mm256_shuffle_epi32(sum1,2);
-    __m256i sum3 = _mm256_add_epi16(sum1,sum2);
-#if defined (_MSC_VER) && _MSC_VER <= 1700 && ! defined(__INTEL_COMPILER)
-    __m128i sum4 = _mm256_extractf128_si256(sum3,1); // bug in MS compiler VS 11
-#else
-    __m128i sum4 = _mm256_extracti128_si256(sum3,1);
-#endif
-    __m128i sum5 = _mm_add_epi16(_mm256_castsi256_si128(sum3),sum4);
-    return         _mm_cvtsi128_si32(sum5);
+    Vec256b sum1 = _mm256_sad_epu8(a,_mm256_setzero_si256());     // four 16bit sums in the 4 quadwords
+    Vec8us sum2 = Vec8us(sum1.get_low()) + Vec8us(sum1.get_high());
+//    Vec8us shuf = 
+    Vec8us sum3 = sum2 + Vec8us(_mm_unpackhi_epi64(sum2, sum2));
+    return      _mm_cvtsi128_si32(sum3);
 }
 
 // Horizontal add: Calculates the sum of all vector elements.
@@ -1162,7 +1157,7 @@ public:
         return _mm256_castsi256_si128(ymm);
     }
     Vec8s get_high() const {
-        return _mm256_extractf128_si256(ymm,1);
+        return hi128i(ymm);   // workaround MSVC 11 bug
     }
     static int size() {
         return 16;
@@ -1477,33 +1472,20 @@ static inline Vec16s if_add (Vec16sb const & f, Vec16s const & a, Vec16s const &
 // Horizontal add: Calculates the sum of all vector elements.
 // Overflow will wrap around
 static inline int32_t horizontal_add (Vec16s const & a) {
-    __m256i sum1  = _mm256_hadd_epi16(a,a);                           // horizontally add 2x8 elements in 3 steps
-    __m256i sum2  = _mm256_hadd_epi16(sum1,sum1);
-    __m256i sum3  = _mm256_hadd_epi16(sum2,sum2); 
-#if defined (_MSC_VER) && _MSC_VER <= 1700 && ! defined(__INTEL_COMPILER)
-    __m128i sum4  = _mm256_extractf128_si256(sum3,1);                 // bug in MS compiler VS 11
-#else
-    __m128i sum4  = _mm256_extracti128_si256(sum3,1);                 // get high part
-#endif
-    __m128i sum5  = _mm_add_epi16(_mm256_castsi256_si128(sum3),sum4); // add low and high parts
-    int16_t sum6  = (int16_t)_mm_cvtsi128_si32(sum5);                 // truncate to 16 bits
-    return  sum6;                                                     // sign extend to 32 bits
+    return horizontal_add(a.get_low() + a.get_high());
 }
 
 // Horizontal add extended: Calculates the sum of all vector elements.
 // Elements are sign extended before adding to avoid overflow
 static inline int32_t horizontal_add_x (Vec16s const & a) {
+    // TODO: optimize
     __m256i aeven = _mm256_slli_epi32(a,16);                  // even numbered elements of a. get sign bit in position
             aeven = _mm256_srai_epi32(aeven,16);              // sign extend even numbered elements
     __m256i aodd  = _mm256_srai_epi32(a,16);                  // sign extend odd  numbered elements
     __m256i sum1  = _mm256_add_epi32(aeven,aodd);             // add even and odd elements
     __m256i sum2  = _mm256_hadd_epi32(sum1,sum1);             // horizontally add 2x4 elements in 2 steps
     __m256i sum3  = _mm256_hadd_epi32(sum2,sum2);
-#if defined (_MSC_VER) && _MSC_VER <= 1700 && ! defined(__INTEL_COMPILER)
-    __m128i sum4  = _mm256_extractf128_si256(sum3,1);         // bug in MS compiler VS 11
-#else
-    __m128i sum4  = _mm256_extracti128_si256(sum3,1);
-#endif
+    __m128i sum4  = hi128i(sum3);         // bug in MS compiler VS 11
     __m128i sum5  = _mm_add_epi32(_mm256_castsi256_si128(sum3),sum4);
     return          _mm_cvtsi128_si32(sum5); 
 }
@@ -1613,7 +1595,7 @@ public:
         return _mm256_castsi256_si128(ymm);
     }
     Vec8us get_high() const {
-        return _mm256_extractf128_si256(ymm,1);
+        return hi128i(ymm);      // workaround MSVC 11 bug
     }
 };
 
@@ -1728,16 +1710,7 @@ static inline Vec16us if_add (Vec16sb const & f, Vec16us const & a, Vec16us cons
 // Horizontal add: Calculates the sum of all vector elements.
 // Overflow will wrap around
 static inline uint32_t horizontal_add (Vec16us const & a) {
-    __m256i sum1  = _mm256_hadd_epi16(a,a);                           // horizontally add 2x8 elements in 3 steps
-    __m256i sum2  = _mm256_hadd_epi16(sum1,sum1);
-    __m256i sum3  = _mm256_hadd_epi16(sum2,sum2);
-#if defined (_MSC_VER) && _MSC_VER <= 1700 && ! defined(__INTEL_COMPILER)
-    __m128i sum4  = _mm256_extractf128_si256(sum3,1);                 // bug in MS compiler VS 11
-#else
-    __m128i sum4  = _mm256_extracti128_si256(sum3,1);                 // get high part
-#endif
-    __m128i sum5  = _mm_add_epi32(_mm256_castsi256_si128(sum3),sum4); // add low and high parts
-    return          _mm_cvtsi128_si32(sum5);  
+    return horizontal_add(a.get_low() + a.get_high());
 }
 
 // Horizontal add extended: Calculates the sum of all vector elements.
@@ -1750,11 +1723,7 @@ static inline uint32_t horizontal_add_x (Vec16us const & a) {
     __m256i sum1  = _mm256_add_epi32(aeven,aodd);                     // add even and odd elements
     __m256i sum2  = _mm256_hadd_epi32(sum1,sum1);                     // horizontally add 2x4 elements in 2 steps
     __m256i sum3  = _mm256_hadd_epi32(sum2,sum2);
-#if defined (_MSC_VER) && _MSC_VER <= 1700 && ! defined(__INTEL_COMPILER)
-    __m128i sum4  = _mm256_extractf128_si256(sum3,1);                 // bug in MS compiler VS 11
-#else
-    __m128i sum4  = _mm256_extracti128_si256(sum3,1);                 // get high part
-#endif
+    __m128i sum4  = hi128i(sum3);                 // bug in MS compiler VS 11
     __m128i sum5  = _mm_add_epi32(_mm256_castsi256_si128(sum3),sum4); // add low and high parts
     return          _mm_cvtsi128_si32(sum5);  
 }
@@ -1866,6 +1835,7 @@ public:
     // Member function to change a single element in vector
     // Note: This function is inefficient. Use load function if changing more than one element
     Vec8i const & insert(uint32_t index, int32_t value) {
+	// TODO: something else when index is a compile-time constant?
         static const int32_t maskl[16] = {0,0,0,0,0,0,0,0, -1,0,0,0,0,0,0,0};
         __m256i broad = _mm256_set1_epi32(value);  // broadcast value into all elements
         __m256i mask  = Vec256b().load(maskl + 8 - (index & 7)); // mask with FFFFFFFF at index position
@@ -1888,7 +1858,7 @@ public:
         return _mm256_castsi256_si128(ymm);
     }
     Vec4i get_high() const {
-        return _mm256_extractf128_si256(ymm,1);
+        return hi128i(ymm);
     }
     static int size() {
         return 8;
@@ -2202,15 +2172,7 @@ static inline Vec8i if_add (Vec8ib const & f, Vec8i const & a, Vec8i const & b) 
 // Horizontal add: Calculates the sum of all vector elements.
 // Overflow will wrap around
 static inline int32_t horizontal_add (Vec8i const & a) {
-    __m256i sum1  = _mm256_hadd_epi32(a,a);                           // horizontally add 2x4 elements in 2 steps
-    __m256i sum2  = _mm256_hadd_epi32(sum1,sum1);
-#if defined (_MSC_VER) && _MSC_VER <= 1700 && ! defined(__INTEL_COMPILER)
-    __m128i sum3  = _mm256_extractf128_si256(sum2,1);                 // bug in MS VS 11
-#else
-    __m128i sum3  = _mm256_extracti128_si256(sum2,1);                 // get high part
-#endif
-    __m128i sum4  = _mm_add_epi32(_mm256_castsi256_si128(sum2),sum3); // add low and high parts
-    return          _mm_cvtsi128_si32(sum4);
+    return horizontal_add(a.get_low() + a.get_high());
 }
 
 // Horizontal add extended: Calculates the sum of all vector elements.
@@ -2337,7 +2299,7 @@ public:
         return _mm256_castsi256_si128(ymm);
     }
     Vec4ui get_high() const {
-        return _mm256_extractf128_si256(ymm,1);
+        return hi128i(ymm);
     }
 };
 
@@ -2626,7 +2588,7 @@ public:
         return _mm256_castsi256_si128(ymm);
     }
     Vec2q get_high() const {
-        return _mm256_extractf128_si256(ymm,1);
+        return hi128i(ymm);
     }
     static int size() {
         return 4;
@@ -2961,20 +2923,7 @@ static inline Vec4q if_add (Vec4qb const & f, Vec4q const & a, Vec4q const & b) 
 // Horizontal add: Calculates the sum of all vector elements.
 // Overflow will wrap around
 static inline int64_t horizontal_add (Vec4q const & a) {
-    __m256i sum1  = _mm256_shuffle_epi32(a,0x0E);                     // high element
-    __m256i sum2  = _mm256_add_epi64(a,sum1);                         // sum
-    __m128i sum3  = hi128i(sum2);                         // wrapper to workaround bug in MS compiler VS 11
-    __m128i sum4  = _mm_add_epi64(lo128i(sum2),sum3);                 // add low and high parts
-#if defined(__x86_64__)
-    return          _mm_cvtsi128_si64(sum4);                          // 64 bit mode
-#else
-    union {
-        __m128i x;  // silly definition of _mm256_storel_epi64 requires __m256i
-        uint64_t i;
-    } u;
-    _mm_storel_epi64(&u.x,sum4);
-    return u.i;
-#endif
+    return horizontal_add(a.get_low() + a.get_high());
 }
 
 // function max: a > b ? a : b
@@ -3073,7 +3022,7 @@ public:
         return _mm256_castsi256_si128(ymm);
     }
     Vec2uq get_high() const {
-        return _mm256_extractf128_si256(ymm,1);
+        return hi128i(ymm);
     }
 };
 
