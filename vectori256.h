@@ -2799,16 +2799,15 @@ static inline Vec4q operator >> (Vec4q const & a, int32_t b) {
         __m128i bb   = _mm_cvtsi32_si128(b);                   // b
         __m256i sra  = _mm256_sra_epi32(a,bb);                 // a >> b signed dwords
         __m256i srl  = _mm256_srl_epi64(a,bb);                 // a >> b unsigned qwords
-        __m256i mask = constant8i<0,-1,0,-1,0,-1,0,-1>();      // mask for signed high part
-        return  selectb(mask, sra, srl);
+	return  _mm256_blend_epi32(sra, srl, 0b01010101);
     }
     else {  // b > 32
+	// 128b strategy (shuffle->pmovsx) would require a 32B control mask for vpermd, and 2 lane-crossings
         __m128i bm32 = _mm_cvtsi32_si128(b-32);                // b - 32
         __m256i sign = _mm256_srai_epi32(a,31);                // sign of a
         __m256i sra2 = _mm256_sra_epi32(a,bm32);               // a >> (b-32) signed dwords
         __m256i sra3 = _mm256_srli_epi64(sra2,32);             // a >> (b-32) >> 32 (second shift unsigned qword)
-        __m256i mask = constant8i<0,-1,0,-1,0,-1,0,-1>();      // mask for high part containing only sign
-        return  selectb(mask, sign ,sra3);
+	return  _mm256_blend_epi32(sign, sra3, 0b01010101);
     }
 }
 

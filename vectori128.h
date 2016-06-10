@@ -2868,18 +2868,46 @@ static inline Vec2q operator >> (Vec2q const & a, int32_t b) {
     // instruction does not exist. Split into 32-bit shifts
     if (b <= 32) {
         __m128i bb   = _mm_cvtsi32_si128(b);               // b
-        __m128i sra  = _mm_sra_epi32(a,bb);                // a >> b signed dwords
-        __m128i srl  = _mm_srl_epi64(a,bb);                // a >> b unsigned qwords
-        __m128i mask = _mm_setr_epi32(0,-1,0,-1);          // mask for signed high part
-        return  selectb(mask,sra,srl);
+#if INSTRSET >= 5
+	// TODO: report gcc extra movdqa with sra first
+        __m128i srl  = _mm_srl_epi64(a,bb);                // a >> b unsigned qwords, use the low half  // srl first happens to avoid an extra movdqa in one testcase with gcc 4.8 to at least 6.1
+        __m128i sra  = _mm_sra_epi32(a,bb);                // a >> b signed dwords, use the upper half
+        // clang is magic, and compiles this to 2xpshufd + punpck when SSE4.1 isn't available
+        // and to pblendw or vpblendd as available
+    #if INSTRSET >= 8 // AVX2
+        return  _mm_blend_epi32(sra, srl, 0b0101);  // runs on more ports on CPUs that support it
+    #else
+        return  _mm_blend_epi16(sra, srl, 0b00110011);
+	// for AVX1: Don't use use vblendps for integer blends without AVX2.
+	// Even on SnB, it has a bypass delay between PADDD.  Same on Jaguar.
+	// Bulldozer-family also runs it in the fp domain, unlike shuffles
+    #endif
+#else  // SSE2:  blend with 2xpshufd + punpckldq (same as clang emits for _mm_blend without SSE4.1)
+        __m128i hihalves      = _mm_shuffle_epi32(a, _MM_SHUFFLE(3,2, 3,1));   // save a movdqa by shuffling before shift
+        __m128i sra_shuffled  = _mm_sra_epi32(hihalves, bb);                   // a >> b signed dwords
+        __m128i srl           = _mm_srl_epi64(a,bb);                           // a >> b unsigned qwords
+        __m128i srl_shuffled  = _mm_shuffle_epi32(srl, _MM_SHUFFLE(3,2, 3,1));
+        return  _mm_unpacklo_epi32(srl_shuffled, sra_shuffled);
+#endif
     }
-    else {  // b > 32
+    else {  // b > 32: upper halves will be all-zero or all-one, i.e. sign-extension of the low halves
         __m128i bm32 = _mm_cvtsi32_si128(b-32);            // b - 32
-        __m128i sign = _mm_srai_epi32(a,31);               // sign of a
-        __m128i sra2 = _mm_sra_epi32(a,bm32);              // a >> (b-32) signed dwords
-        __m128i sra3 = _mm_srli_epi64(sra2,32);            // a >> (b-32) >> 32 (second shift unsigned qword)
-        __m128i mask = _mm_setr_epi32(0,-1,0,-1);          // mask for high part containing only sign
-        return  selectb(mask,sign,sra3);
+        __m128i sra2 = _mm_sra_epi32(a,bm32);              // a >> (b-32) signed dwords: [ l1 x l0 x ]
+		// TODO: report clang3.8 regression: failure to compile this to an immediate shift with SSE2, but it does other times
+#if INSTRSET >= 5  // SSE4.1 pmovsxdq
+	__m128i lowhalves = _mm_shuffle_epi32(sra2, _MM_SHUFFLE(3, 2, 3, 1));  // set up elements 3 and 1 for pmovsx
+	return  _mm_cvtepi32_epi64(lowhalves);
+#else // SSE2:  shuffle the sign-bit upper halves into place
+        __m128i sign = _mm_srai_epi32(a,31);               // sign of a: [ h1 x h0 x ]
+	// alternative: 2x pshufd -> punpckldq avoids bypass delays on Nehalem.  clang3.8 actually emits that, but doesn't shuffle before shifting to save a movdqa.
+	// TODO: test on Merom and Nehalem?  May be worth saving a shuffle on slowshuffle CPUs, and not much worse on SnB
+	// This is almost certainly the best option for all modern CPUs that don't care much about domains for shuffles
+	__m128 combined = _mm_shuffle_ps((__m128)sra2, (__m128)sign, _MM_SHUFFLE(/*sign*/3,1, /*sra2*/3,1)); // [ h1 h0 l1 l0 ]
+	__m128i ordered = _mm_shuffle_epi32((__m128i)combined, _MM_SHUFFLE(3, 1, 2, 0));
+//	__m128i ordered = (__m128i)_mm_shuffle_ps(combined, combined, _MM_SHUFFLE(3, 1, 2, 0));  // would save a byte (and pass the buck on possible bypass delay), but gcc5.2 wastes a movdqa
+	// TODO: report gcc bug: extra movdqa with shufps same,same
+	return  ordered;
+#endif
     }
 }
 
