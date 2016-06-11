@@ -2042,12 +2042,15 @@ static inline Vec4i operator * (Vec4i const & a, Vec4i const & b) {
     return _mm_mullo_epi32(a, b);
 #else
    __m128i a13    = _mm_shuffle_epi32(a, 0xF5);          // (-,a3,-,a1)
-   __m128i b13    = _mm_shuffle_epi32(b, 0xF5);          // (-,b3,-,b1)
+   __m128i b13    = _mm_shuffle_epi32(b, 0xF5);          // (-,b3,-,b1)     // psrlq would work, but destroys b
    __m128i prod02 = _mm_mul_epu32(a, b);                 // (-,a2*b2,-,a0*b0)
    __m128i prod13 = _mm_mul_epu32(a13, b13);             // (-,a3*b3,-,a1*b1)
-   __m128i prod01 = _mm_unpacklo_epi32(prod02,prod13);   // (-,-,a1*b1,a0*b0) 
-   __m128i prod23 = _mm_unpackhi_epi32(prod02,prod13);   // (-,-,a3*b3,a2*b2) 
-   return           _mm_unpacklo_epi64(prod01,prod23);   // (ab3,ab2,ab1,ab0)
+   __m128i p02_masked  = _mm_and_si128(prod02, _mm_set_epi32(0,-1,0,-1)); // (    0, a2*b2,     0, a0*b0)
+   __m128i p13_shifted = _mm_slli_epi64(prod13, 32);			  // (a3*b3,     0, a1*b1,     0)
+   return _mm_or_si128(p02_masked, p13_shifted);
+   // Alternative: unpacklo/hi32 -> unpacklo64.  Or shufps + pshufd.
+   // Many CPUs have limited shuffle throughput, so it's probably worth using a constant for this.
+   // Outside of loops, avoiding the constant with the 3-shuffle option would be good.
 #endif
 }
 
